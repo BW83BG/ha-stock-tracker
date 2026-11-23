@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import date
 import logging
+import time
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import StockApiClient, StockApiError, StockQuote
 from .calc import (
@@ -42,13 +45,23 @@ from .const import (
     CONF_SYMBOL,
     DEFAULT_OPTIONS,
     DOMAIN,
+    HISTORY_MAX_AGE,
     SUBENTRY_TYPE_STOCK,
     scan_interval,
 )
+from .plan import History, PlanResult, SavingsPlan, combine, evaluate_plan, plan_from_data
 
 _LOGGER = logging.getLogger(__name__)
 
 type StockConfigEntry = ConfigEntry[StockCoordinator]
+
+
+@dataclass(frozen=True, slots=True)
+class Holding:
+    """A configured position: manual base + optional savings plan."""
+
+    base: Position
+    plan: SavingsPlan | None
 
 
 @dataclass(slots=True)
@@ -58,13 +71,39 @@ class StockData:
     quotes: dict[str, StockQuote] = field(default_factory=dict)
     fx_rates: dict[str, float] = field(default_factory=dict)  # currency -> rate
     positions: dict[str, PositionResult] = field(default_factory=dict)
+    plans: dict[str, PlanResult] = field(default_factory=dict)
     portfolio: PortfolioResult | None = None  # None if a position is incomplete
     missing: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _CachedHistory:
+    start: date
+    fetched: float
+    data: History
 
 
 def fx_symbol(currency: str, target: str) -> str:
     """Yahoo symbol for the exchange rate currency -> target."""
     return f"{currency}{target}=X"
+
+
+def holding_from_data(data: dict[str, Any]) -> Holding | None:
+    """Holding from subentry data; None for watch-only stocks."""
+    plan = plan_from_data(data)
+    quantity = float(data.get(CONF_QUANTITY) or 0)
+    if quantity <= 0 and plan is None:
+        return None
+    return Holding(
+        base=Position(
+            symbol=data[CONF_SYMBOL],
+            quantity=max(quantity, 0.0),
+            purchase_price=float(data.get(CONF_PURCHASE_PRICE) or 0),
+            purchase_fees=float(data.get(CONF_PURCHASE_FEES) or 0),
+            asset_type=AssetType(data.get(CONF_ASSET_TYPE, AssetType.STOCK)),
+        ),
+        plan=plan,
+    )
 
 
 class StockCoordinator(DataUpdateCoordinator[StockData]):
@@ -94,38 +133,30 @@ class StockCoordinator(DataUpdateCoordinator[StockData]):
             stock_loss_pot=float(self.options[CONF_STOCK_LOSS_POT]),
             general_loss_pot=float(self.options[CONF_GENERAL_LOSS_POT]),
         )
+        self._history: dict[str, _CachedHistory] = {}
 
-    @property
-    def symbols(self) -> list[str]:
-        """All symbols configured as subentries."""
+    def _stock_subentries(self):
         return [
-            sub.data[CONF_SYMBOL]
+            sub
             for sub in self.config_entry.subentries.values()
             if sub.subentry_type == SUBENTRY_TYPE_STOCK
         ]
 
     @property
-    def holdings(self) -> list[Position]:
-        """Subentries with a quantity > 0."""
-        result = []
-        for sub in self.config_entry.subentries.values():
-            if sub.subentry_type != SUBENTRY_TYPE_STOCK:
-                continue
-            quantity = float(sub.data.get(CONF_QUANTITY) or 0)
-            if quantity <= 0:
-                continue
-            result.append(
-                Position(
-                    symbol=sub.data[CONF_SYMBOL],
-                    quantity=quantity,
-                    purchase_price=float(sub.data.get(CONF_PURCHASE_PRICE) or 0),
-                    purchase_fees=float(sub.data.get(CONF_PURCHASE_FEES) or 0),
-                    asset_type=AssetType(
-                        sub.data.get(CONF_ASSET_TYPE, AssetType.STOCK)
-                    ),
-                )
-            )
-        return result
+    def symbols(self) -> list[str]:
+        """All symbols configured as subentries."""
+        return [sub.data[CONF_SYMBOL] for sub in self._stock_subentries()]
+
+    @property
+    def holdings(self) -> list[Holding]:
+        """Stocks with a quantity > 0 or a savings plan."""
+        return [
+            h
+            for sub in self._stock_subentries()
+            if (h := holding_from_data(dict(sub.data))) is not None
+        ]
+
+    # ------------------------------------------------------------------ fetch
 
     async def _fetch(self, symbols: list[str], previous: dict[str, Any]) -> dict:
         """Fetch quotes; fall back to the last known value on errors."""
@@ -144,6 +175,23 @@ class StockCoordinator(DataUpdateCoordinator[StockData]):
                 _LOGGER.error("Unerwarteter Fehler für %s", symbol, exc_info=result)
             if symbol in previous:
                 data[symbol] = previous[symbol]
+        return data
+
+    async def _get_history(self, symbol: str, start: date) -> History | None:
+        """Daily closes since `start`, cached for HISTORY_MAX_AGE seconds."""
+        cached = self._history.get(symbol)
+        if (
+            cached
+            and cached.start <= start
+            and time.monotonic() - cached.fetched < HISTORY_MAX_AGE
+        ):
+            return cached.data
+        try:
+            data = await self.client.async_get_history(symbol, start)
+        except StockApiError as err:
+            _LOGGER.warning("Kursverlauf für %s nicht abrufbar: %s", symbol, err)
+            return cached.data if cached and cached.start <= start else None
+        self._history[symbol] = _CachedHistory(start, time.monotonic(), data)
         return data
 
     async def _async_update_data(self) -> StockData:
@@ -175,24 +223,66 @@ class StockCoordinator(DataUpdateCoordinator[StockData]):
             elif sym in prev_fx:
                 fx_rates[cur] = prev_fx[sym]
 
-        return self._evaluate(quotes, fx_rates)
+        holdings = self.holdings
+        plans = await self._evaluate_plans(holdings, quotes)
+        return self._evaluate(holdings, quotes, fx_rates, plans)
+
+    async def _evaluate_plans(
+        self, holdings: list[Holding], quotes: dict[str, StockQuote]
+    ) -> dict[str, PlanResult | None]:
+        """Executions for every active plan (None if history is unavailable)."""
+        today = dt_util.now().date()
+        results: dict[str, PlanResult | None] = {}
+        for holding in holdings:
+            plan = holding.plan
+            if plan is None or not plan.active:
+                continue
+            symbol = holding.base.symbol
+            if plan.start > today:
+                results[symbol] = evaluate_plan(plan, [], None, today)
+                continue
+            quote = quotes.get(symbol)
+            currency, divisor = normalize_currency(quote.currency if quote else None)
+            prices = await self._get_history(symbol, plan.start)
+            fx: History | None = None
+            if currency and currency != self.currency:
+                fx = await self._get_history(fx_symbol(currency, self.currency), plan.start)
+                if fx is None:
+                    results[symbol] = None
+                    continue
+            if prices is None or currency is None:
+                results[symbol] = None
+                continue
+            results[symbol] = evaluate_plan(plan, prices, fx, today, divisor)
+        return results
 
     def _evaluate(
-        self, quotes: dict[str, StockQuote], fx_rates: dict[str, float]
+        self,
+        holdings: list[Holding],
+        quotes: dict[str, StockQuote],
+        fx_rates: dict[str, float],
+        plans: dict[str, PlanResult | None],
     ) -> StockData:
         positions: dict[str, PositionResult] = {}
         missing: list[str] = []
-        holdings = self.holdings
 
         for holding in holdings:
-            quote = quotes.get(holding.symbol)
+            symbol = holding.base.symbol
+            quote = quotes.get(symbol)
             currency, divisor = normalize_currency(quote.currency if quote else None)
             rate = fx_rates.get(currency) if currency else None
-            if quote is None or quote.price is None or rate is None:
-                missing.append(holding.symbol)
+            if symbol in plans and plans[symbol] is None:
+                missing.append(symbol)
                 continue
-            positions[holding.symbol] = evaluate_position(
-                holding,
+            if quote is None or quote.price is None or rate is None:
+                missing.append(symbol)
+                continue
+            plan_result = plans.get(symbol)
+            position = combine(holding.base, plan_result) if plan_result else holding.base
+            if position.quantity <= 0:
+                continue  # plan without executions yet
+            positions[symbol] = evaluate_position(
+                position,
                 price=quote.price / divisor,
                 change=(quote.change / divisor) if quote.change is not None else None,
                 fx_rate=rate,
@@ -209,6 +299,7 @@ class StockCoordinator(DataUpdateCoordinator[StockData]):
             quotes=quotes,
             fx_rates=fx_rates,
             positions=positions,
+            plans={s: p for s, p in plans.items() if p is not None},
             portfolio=portfolio,
             missing=missing,
         )

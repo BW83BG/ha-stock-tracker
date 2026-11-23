@@ -112,14 +112,37 @@
           "data_description": {
             "name": "Leave empty to use the name from Yahoo Finance.",
             "quantity": "Number of shares held (0 = watch only).",
-            "purchase_price": "Average purchase price in portfolio currency.",
+            "purchase_price": "Average purchase price in portfolio currency, without fees.",
             "purchase_fees": "Sum of all fees paid when buying.",
             "asset_type": "Determines partial exemption and loss offsetting."
+          },
+          "sections": {
+            "savings_plan": {
+              "name": "Savings plan",
+              "description": "Optional. Executions are calculated automatically from historical closing prices (non-trading day: next trading day) and added to the position. Plan fees are separate from the sell fees.",
+              "data": {
+                "plan_active": "Active",
+                "plan_amount": "Amount per execution",
+                "plan_interval": "Interval",
+                "plan_day": "Execution day",
+                "plan_start": "Start date",
+                "plan_fee_fixed": "Fee per execution (fixed)",
+                "plan_fee_percent": "Fee per execution (%)",
+                "plan_fee_included": "Fee included in amount"
+              },
+              "data_description": {
+                "plan_amount": "0 = no savings plan.",
+                "plan_day": "Day of month (later days are moved to the month's end). Ignored for weekly plans.",
+                "plan_start": "First possible execution. For weekly plans this is the first execution.",
+                "plan_fee_included": "On: the fee is deducted from the amount. Off: the fee is charged on top.",
+                "plan_active": "Switch off to pause the plan."
+              }
+            }
           }
         },
         "reconfigure": {
           "title": "Edit {symbol}",
-          "description": "Amounts in {currency}. After additional purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
+          "description": "Amounts in {currency}. {executions} calculated savings plan executions have been added to quantity, purchase price and fees below; compare with your broker and correct if necessary. After additional one-off purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
           "data": {
             "name": "Name",
             "asset_type": "Asset type",
@@ -129,15 +152,40 @@
           },
           "data_description": {
             "quantity": "Number of shares held (0 = watch only).",
-            "purchase_price": "Average purchase price in portfolio currency.",
+            "purchase_price": "Average purchase price in portfolio currency, without fees.",
             "purchase_fees": "Sum of all fees paid when buying.",
             "asset_type": "Determines partial exemption and loss offsetting."
+          },
+          "sections": {
+            "savings_plan": {
+              "name": "Savings plan",
+              "description": "Optional. Executions are calculated automatically from historical closing prices (non-trading day: next trading day) and added to the position. Plan fees are separate from the sell fees.",
+              "data": {
+                "plan_active": "Active",
+                "plan_amount": "Amount per execution",
+                "plan_interval": "Interval",
+                "plan_day": "Execution day",
+                "plan_start": "Start date",
+                "plan_fee_fixed": "Fee per execution (fixed)",
+                "plan_fee_percent": "Fee per execution (%)",
+                "plan_fee_included": "Fee included in amount"
+              },
+              "data_description": {
+                "plan_amount": "0 = no savings plan.",
+                "plan_day": "Day of month (later days are moved to the month's end). Ignored for weekly plans.",
+                "plan_start": "First possible execution. For weekly plans this is the first execution.",
+                "plan_fee_included": "On: the fee is deducted from the amount. Off: the fee is charged on top.",
+                "plan_active": "Switch off to pause the plan."
+              }
+            }
           }
         }
       },
       "error": {
         "symbol_not_found": "Symbol not found. Check the spelling on finance.yahoo.com.",
-        "cannot_connect": "Could not connect to Yahoo Finance."
+        "cannot_connect": "Could not connect to Yahoo Finance.",
+        "plan_start_required": "Please enter a start date for the savings plan.",
+        "plan_fee_too_high": "The plan fee is as high as the amount."
       },
       "abort": {
         "already_configured": "This stock is already tracked.",
@@ -161,6 +209,17 @@
         "real_estate_fund": "Real estate fund (60 % exemption)",
         "other": "Other (bonds, ETCs, ...)",
         "tax_free": "Tax-free (e.g. crypto held > 1 year)"
+      }
+    },
+    "plan_interval": {
+      "options": {
+        "weekly": "Weekly",
+        "biweekly": "Every 2 weeks",
+        "monthly": "Monthly",
+        "bimonthly": "Every 2 months",
+        "quarterly": "Quarterly",
+        "semiannual": "Every 6 months",
+        "annual": "Yearly"
       }
     }
   },
@@ -207,6 +266,21 @@
       },
       "day_change_value": {
         "name": "Day change (value)"
+      },
+      "quantity": {
+        "name": "Quantity"
+      },
+      "average_cost": {
+        "name": "Average cost per share"
+      },
+      "plan_next_execution": {
+        "name": "Next savings plan execution"
+      },
+      "plan_quantity": {
+        "name": "Savings plan shares"
+      },
+      "plan_invested": {
+        "name": "Savings plan invested"
       }
     }
   }

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import aiohttp
+
+from homeassistant.util import dt as dt_util
 
 from .calc import TradingPeriods
 from .const import REQUEST_TIMEOUT
@@ -70,10 +72,9 @@ class StockApiClient:
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self._session = session
 
-    async def async_get_quote(self, symbol: str) -> StockQuote:
-        """Fetch the current quote for a single symbol."""
+    async def _async_chart(self, symbol: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Call the chart endpoint and return the first result."""
         url = _BASE_URL.format(symbol=symbol)
-        params = {"interval": "1d", "range": "1d"}
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT):
                 resp = await self._session.get(url, params=params, headers=_HEADERS)
@@ -97,7 +98,39 @@ class StockApiClient:
         if not results:
             raise SymbolNotFoundError(symbol)
 
-        meta: dict[str, Any] = results[0].get("meta") or {}
+        return results[0]
+
+    async def async_get_history(self, symbol: str, start: date) -> list[tuple[date, float]]:
+        """Daily closes from `start` until today, keyed by exchange-local date."""
+        begin = datetime.combine(start - timedelta(days=1), datetime.min.time(), UTC)
+        result = await self._async_chart(
+            symbol,
+            {
+                "interval": "1d",
+                "period1": int(begin.timestamp()),
+                "period2": int(datetime.now(UTC).timestamp()),
+            },
+        )
+        meta = result.get("meta") or {}
+        tz = await dt_util.async_get_time_zone(
+            meta.get("exchangeTimezoneName") or "UTC"
+        ) or UTC
+        timestamps = result.get("timestamp") or []
+        quotes = ((result.get("indicators") or {}).get("quote") or [{}])[0]
+        closes = quotes.get("close") or []
+        history: dict[date, float] = {}
+        for ts, close in zip(timestamps, closes, strict=False):
+            if close is None:
+                continue
+            day = datetime.fromtimestamp(ts, tz).date()
+            if day >= start:
+                history[day] = float(close)
+        return sorted(history.items())
+
+    async def async_get_quote(self, symbol: str) -> StockQuote:
+        """Fetch the current quote for a single symbol."""
+        result = await self._async_chart(symbol, {"interval": "1d", "range": "1d"})
+        meta: dict[str, Any] = result.get("meta") or {}
         if meta.get("regularMarketPrice") is None:
             raise SymbolNotFoundError(symbol)
 

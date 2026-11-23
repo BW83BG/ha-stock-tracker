@@ -22,8 +22,9 @@ from homeassistant.util import dt as dt_util
 
 from .api import StockQuote
 from .calc import MarketState, PortfolioResult, PositionResult, TaxResult
-from .const import ATTRIBUTION, CONF_QUANTITY, CONF_SYMBOL, DOMAIN, SUBENTRY_TYPE_STOCK
-from .coordinator import StockConfigEntry, StockCoordinator
+from .const import ATTRIBUTION, CONF_SYMBOL, DOMAIN, SUBENTRY_TYPE_STOCK
+from .coordinator import StockConfigEntry, StockCoordinator, holding_from_data
+from .plan import PlanResult, plan_from_data
 
 # --------------------------------------------------------------------------- #
 # Descriptions
@@ -83,6 +84,56 @@ class ValueSensorDescription(SensorEntityDescription):
 
     value_fn: Callable[[Valuation], float | None]
     is_money: bool = True
+
+
+POSITION_ONLY_SENSORS: tuple[ValueSensorDescription, ...] = (
+    ValueSensorDescription(
+        key="quantity",
+        translation_key="quantity",
+        is_money=False,
+        value_fn=lambda v: v.quantity,  # type: ignore[union-attr]
+    ),
+    ValueSensorDescription(
+        key="average_cost",
+        translation_key="average_cost",
+        value_fn=lambda v: (
+            round(v.cost_basis / v.quantity, 4) if v.quantity else None  # type: ignore[union-attr]
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlanSensorDescription(SensorEntityDescription):
+    """Sensor derived from a savings plan result."""
+
+    value_fn: Callable[[PlanResult], Any]
+    is_money: bool = False
+
+
+PLAN_SENSORS: tuple[PlanSensorDescription, ...] = (
+    PlanSensorDescription(
+        key="plan_next_execution",
+        translation_key="plan_next_execution",
+        device_class=SensorDeviceClass.DATE,
+        value_fn=lambda r: r.next_date,
+    ),
+    PlanSensorDescription(
+        key="plan_quantity",
+        translation_key="plan_quantity",
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=4,
+        value_fn=lambda r: r.quantity,
+    ),
+    PlanSensorDescription(
+        key="plan_invested",
+        translation_key="plan_invested",
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=2,
+        is_money=True,
+        value_fn=lambda r: r.invested,
+    ),
+)
 
 
 VALUE_SENSORS: tuple[ValueSensorDescription, ...] = (
@@ -151,9 +202,14 @@ async def async_setup_entry(
         entities: list[SensorEntity] = [
             QuoteSensor(coordinator, subentry, d) for d in QUOTE_SENSORS
         ]
-        if float(subentry.data.get(CONF_QUANTITY) or 0) > 0:
+        if holding_from_data(dict(subentry.data)) is not None:
             has_holdings = True
-            entities += [PositionSensor(coordinator, subentry, d) for d in VALUE_SENSORS]
+            entities += [
+                PositionSensor(coordinator, subentry, d)
+                for d in (*POSITION_ONLY_SENSORS, *VALUE_SENSORS)
+            ]
+        if plan_from_data(dict(subentry.data)) is not None:
+            entities += [PlanSensor(coordinator, subentry, d) for d in PLAN_SENSORS]
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
     if has_holdings:
@@ -263,7 +319,7 @@ class _ValueSensor(_Base):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_suggested_display_precision = 2
+        self._attr_suggested_display_precision = 4 if description.key == "quantity" else 2
         if description.is_money:
             self._attr_native_unit_of_measurement = coordinator.currency
 
@@ -355,3 +411,66 @@ class PortfolioSensor(_ValueSensor):
         if key == "tax":
             return {**_tax_attributes(p.tax), "scenario": "whole_portfolio"}
         return None
+
+
+# --------------------------------------------------------------------------- #
+# Savings plan sensors
+# --------------------------------------------------------------------------- #
+
+
+class PlanSensor(_Base):
+    """Executions of a savings plan since its (last folded) start date."""
+
+    entity_description: PlanSensorDescription
+
+    def __init__(
+        self,
+        coordinator: StockCoordinator,
+        subentry: ConfigSubentry,
+        description: PlanSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._symbol: str = subentry.data[CONF_SYMBOL]
+        self._plan = plan_from_data(dict(subentry.data))
+        self._attr_unique_id = f"{self._symbol}_{description.key}"
+        self._attr_device_info = _stock_device(subentry)
+        if description.is_money:
+            self._attr_native_unit_of_measurement = coordinator.currency
+
+    @property
+    def _result(self) -> PlanResult | None:
+        data = self.coordinator.data
+        return data.plans.get(self._symbol) if data else None
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._result is not None
+
+    @property
+    def native_value(self) -> Any:
+        result = self._result
+        return self.entity_description.value_fn(result) if result else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        result, plan = self._result, self._plan
+        if result is None or plan is None or self.entity_description.key != "plan_invested":
+            return None
+        return {
+            "amount": plan.amount,
+            "interval": plan.interval.value,
+            "fee_per_execution": plan.fee(),
+            "since": plan.start.isoformat(),
+            "executions": len(result.executions),
+            "fees": result.fees,
+            "last_executions": [
+                {
+                    "date": e.traded.isoformat(),
+                    "price": e.price,
+                    "quantity": e.quantity,
+                    "fee": e.fee,
+                }
+                for e in result.executions[-5:]
+            ],
+        }

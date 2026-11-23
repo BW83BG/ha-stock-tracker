@@ -16,6 +16,22 @@ CONF_QUANTITY: Final = "quantity"
 CONF_PURCHASE_PRICE: Final = "purchase_price"  # per share, portfolio currency
 CONF_PURCHASE_FEES: Final = "purchase_fees"  # total, portfolio currency
 
+# Savings plan (per stock, stored flat in subentry data)
+SECTION_PLAN: Final = "savings_plan"
+CONF_PLAN_ACTIVE: Final = "plan_active"
+CONF_PLAN_AMOUNT: Final = "plan_amount"
+CONF_PLAN_INTERVAL: Final = "plan_interval"
+CONF_PLAN_DAY: Final = "plan_day"
+CONF_PLAN_START: Final = "plan_start"
+CONF_PLAN_FEE_FIXED: Final = "plan_fee_fixed"
+CONF_PLAN_FEE_PERCENT: Final = "plan_fee_percent"
+CONF_PLAN_FEE_INCLUDED: Final = "plan_fee_included"
+PLAN_KEYS: Final = (
+    CONF_PLAN_ACTIVE, CONF_PLAN_AMOUNT, CONF_PLAN_INTERVAL, CONF_PLAN_DAY,
+    CONF_PLAN_START, CONF_PLAN_FEE_FIXED, CONF_PLAN_FEE_PERCENT, CONF_PLAN_FEE_INCLUDED,
+)
+HISTORY_MAX_AGE: Final = 3600  # seconds between history refreshes
+
 # Main entry options (global)
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_CURRENCY: Final = "currency"

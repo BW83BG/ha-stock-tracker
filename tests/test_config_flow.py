@@ -68,7 +68,7 @@ async def test_add_stock_subentry(hass: HomeAssistant, mock_api) -> None:
         hass,
         entry,
         {"symbol": " sap.de ", "asset_type": "stock", "quantity": 10,
-         "purchase_price": 100, "purchase_fees": 5},
+         "purchase_price": 100, "purchase_fees": 5, "savings_plan": {}},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -82,7 +82,7 @@ async def test_add_stock_subentry(hass: HomeAssistant, mock_api) -> None:
     assert hass.states.async_entity_ids_count("sensor") > 0
 
     # duplicate
-    result = await _add_stock(hass, entry, {"symbol": "SAP.DE"})
+    result = await _add_stock(hass, entry, {"symbol": "SAP.DE", "savings_plan": {}})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
@@ -91,7 +91,7 @@ async def test_add_unknown_symbol(hass: HomeAssistant, mock_api) -> None:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, options=DEFAULT_OPTIONS)
     entry.add_to_hass(hass)
 
-    result = await _add_stock(hass, entry, {"symbol": "NOPE"})
+    result = await _add_stock(hass, entry, {"symbol": "NOPE", "savings_plan": {}})
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "symbol_not_found"}
 
@@ -116,7 +116,7 @@ async def test_reconfigure_stock(hass: HomeAssistant, mock_api) -> None:
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
         {"name": "SAP Depot", "asset_type": "stock", "quantity": 3,
-         "purchase_price": 120, "purchase_fees": 1},
+         "purchase_price": 120, "purchase_fees": 1, "savings_plan": {}},
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -124,3 +124,25 @@ async def test_reconfigure_stock(hass: HomeAssistant, mock_api) -> None:
     assert sub.title == "SAP Depot (SAP.DE)"
     assert sub.data["quantity"] == 3.0
     assert sub.data["symbol"] == "SAP.DE"
+
+
+async def test_add_stock_with_plan(hass: HomeAssistant, mock_api) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, options=DEFAULT_OPTIONS)
+    entry.add_to_hass(hass)
+
+    plan = {"plan_amount": 100, "plan_interval": "monthly", "plan_day": 1,
+            "plan_fee_percent": 1.5, "plan_fee_included": True}
+    # start date missing
+    result = await _add_stock(hass, entry, {"symbol": "SAP.DE", "savings_plan": plan})
+    assert result["errors"] == {"base": "plan_start_required"}
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"symbol": "SAP.DE", "savings_plan": {**plan, "plan_start": "2026-09-01"}},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    data = next(iter(entry.subentries.values())).data
+    assert data["plan_amount"] == 100.0
+    assert data["plan_start"] == "2026-09-01"
+    assert data["plan_fee_included"] is True
+    assert data["quantity"] == 0.0

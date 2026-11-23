@@ -59,3 +59,33 @@ def mock_api():
         side_effect=_quote,
     ) as mock:
         yield mock
+
+
+def make_history(start, end, price: float):
+    """Weekday closes with a constant price."""
+    from datetime import timedelta
+
+    day, out = start, []
+    while day <= end:
+        if day.weekday() < 5:
+            out.append((day, price))
+        day += timedelta(days=1)
+    return out
+
+
+@pytest.fixture
+def mock_history():
+    """Patch history: SAP.DE at 100 EUR, AAPL at 200 USD, USDEUR at 0.9."""
+    from datetime import date
+
+    prices = {"SAP.DE": 100.0, "AAPL": 200.0, "USDEUR=X": 0.9}
+
+    async def _history(self, symbol, start):
+        return make_history(start, date(2026, 11, 23), prices[symbol])
+
+    with patch(
+        "custom_components.stock_tracker.api.StockApiClient.async_get_history",
+        autospec=True,
+        side_effect=_history,
+    ) as mock:
+        yield mock

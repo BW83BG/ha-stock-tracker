@@ -97,3 +97,80 @@ async def test_portfolio(hass: HomeAssistant, setup) -> None:
     assert float(_state(hass, f"{entry_id}_portfolio_gain_after_tax").state) == pytest.approx(
         gain - tax, abs=0.01
     )
+
+
+@pytest.fixture
+async def setup_plan(hass: HomeAssistant, mock_api, mock_history, freezer):
+    freezer.move_to("2026-11-23 12:00:00+01:00")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        options=DEFAULT_OPTIONS,
+        subentries_data=[
+            _sub("SAP.DE", asset_type="stock", quantity=10, purchase_price=80, purchase_fees=5,
+                 plan_amount=100, plan_interval="monthly", plan_day=1,
+                 plan_start="2026-09-01", plan_fee_fixed=1.0, plan_fee_included=True),
+            _sub("AAPL", quantity=0, plan_amount=90, plan_interval="monthly", plan_day=15,
+                 plan_start="2026-10-01", plan_fee_included=False),
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_plan_sensors(hass: HomeAssistant, setup_plan) -> None:
+    # SAP: Sep 1, Oct 1, Nov 2 (Nov 1 = Sunday) at 100 EUR, 99 EUR invested each
+    assert float(_state(hass, "SAP.DE_plan_quantity").state) == pytest.approx(2.97)
+    invested = _state(hass, "SAP.DE_plan_invested")
+    assert float(invested.state) == pytest.approx(300)
+    assert invested.attributes["executions"] == 3
+    assert invested.attributes["last_executions"][-1]["date"] == "2026-11-02"
+    assert _state(hass, "SAP.DE_plan_next_execution").state == "2026-12-01"
+
+    assert float(_state(hass, "SAP.DE_quantity").state) == pytest.approx(12.97)
+    # cost basis: 10*80 + 3*99 + fees (5 + 3*1)
+    assert float(_state(hass, "SAP.DE_cost_basis").state) == pytest.approx(800 + 297 + 8)
+
+
+async def test_plan_foreign_currency(hass: HomeAssistant, setup_plan) -> None:
+    # AAPL: Oct 15, Nov 16 (Nov 15 = Sunday), 90 EUR / (200 USD * 0.9) = 0.5 shares each
+    assert float(_state(hass, "AAPL_plan_quantity").state) == pytest.approx(1.0)
+    assert float(_state(hass, "AAPL_quantity").state) == pytest.approx(1.0)
+    assert float(_state(hass, "AAPL_cost_basis").state) == pytest.approx(180)
+
+
+async def test_reconfigure_folds_plan(hass: HomeAssistant, setup_plan) -> None:
+    entry = setup_plan
+    sub_id = next(s.subentry_id for s in entry.subentries.values() if s.unique_id == "SAP.DE")
+    result = await entry.start_subentry_reconfigure_flow(hass, sub_id)
+    assert result["description_placeholders"]["executions"] == "3"
+
+    # read the pre-filled (folded) values back from the form schema
+    suggested = {}
+    for key, val in result["data_schema"].schema.items():
+        if hasattr(val, "schema"):
+            suggested[str(key)] = {
+                str(k): (k.description or {}).get("suggested_value") for k in val.schema.schema
+            }
+        else:
+            suggested[str(key)] = (key.description or {}).get("suggested_value")
+    assert suggested["quantity"] == pytest.approx(12.97)
+    assert suggested["purchase_fees"] == pytest.approx(8)
+    assert suggested["savings_plan"]["plan_start"] == "2026-12-01"
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {k: v for k, v in suggested.items() if v is not None and k != "savings_plan"}
+        | {"savings_plan": {k: v for k, v in suggested["savings_plan"].items() if v is not None}},
+    )
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+
+    data = entry.subentries[sub_id].data
+    assert data["quantity"] == pytest.approx(12.97)
+    assert data["plan_start"] == "2026-12-01"
+    # after reload: no plan executions since Dec 1, total unchanged
+    assert float(_state(hass, "SAP.DE_quantity").state) == pytest.approx(12.97)
+    assert float(_state(hass, "SAP.DE_plan_quantity").state) == 0

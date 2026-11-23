@@ -112,14 +112,37 @@
           "data_description": {
             "name": "Leer lassen, um den Namen von Yahoo Finance zu verwenden.",
             "quantity": "Anzahl gehaltener Anteile (0 = nur beobachten).",
-            "purchase_price": "Durchschnittlicher Kaufkurs in Depotwährung.",
+            "purchase_price": "Durchschnittlicher Kaufkurs in Depotwährung, ohne Gebühren.",
             "purchase_fees": "Summe aller beim Kauf gezahlten Gebühren.",
             "asset_type": "Bestimmt Teilfreistellung und Verlustverrechnung."
+          },
+          "sections": {
+            "savings_plan": {
+              "name": "Sparplan",
+              "description": "Optional. Ausführungen werden automatisch anhand historischer Schlusskurse berechnet (an Nicht-Handelstagen: nächster Handelstag) und zur Position addiert. Sparplan-Gebühren sind unabhängig von den Verkaufsgebühren.",
+              "data": {
+                "plan_active": "Aktiv",
+                "plan_amount": "Sparrate pro Ausführung",
+                "plan_interval": "Intervall",
+                "plan_day": "Ausführungstag",
+                "plan_start": "Startdatum",
+                "plan_fee_fixed": "Gebühr pro Ausführung (fix)",
+                "plan_fee_percent": "Gebühr pro Ausführung (%)",
+                "plan_fee_included": "Gebühr in Sparrate enthalten"
+              },
+              "data_description": {
+                "plan_amount": "0 = kein Sparplan.",
+                "plan_day": "Tag im Monat (spätere Tage werden aufs Monatsende gelegt). Bei wöchentlichen Plänen ohne Bedeutung.",
+                "plan_start": "Frühestmögliche Ausführung. Bei wöchentlichen Plänen die erste Ausführung.",
+                "plan_fee_included": "An: Die Gebühr wird von der Sparrate abgezogen. Aus: Die Gebühr kommt zusätzlich dazu.",
+                "plan_active": "Ausschalten, um den Sparplan zu pausieren."
+              }
+            }
           }
         },
         "reconfigure": {
           "title": "{symbol} bearbeiten",
-          "description": "Beträge in {currency}. Nach Nachkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
+          "description": "Beträge in {currency}. {executions} errechnete Sparplan-Ausführungen wurden unten in Stückzahl, Kaufkurs und Gebühren übernommen. Mit dem Broker abgleichen und ggf. korrigieren. Nach Einmalkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
           "data": {
             "name": "Name",
             "asset_type": "Anlageart",
@@ -129,15 +152,40 @@
           },
           "data_description": {
             "quantity": "Anzahl gehaltener Anteile (0 = nur beobachten).",
-            "purchase_price": "Durchschnittlicher Kaufkurs in Depotwährung.",
+            "purchase_price": "Durchschnittlicher Kaufkurs in Depotwährung, ohne Gebühren.",
             "purchase_fees": "Summe aller beim Kauf gezahlten Gebühren.",
             "asset_type": "Bestimmt Teilfreistellung und Verlustverrechnung."
+          },
+          "sections": {
+            "savings_plan": {
+              "name": "Sparplan",
+              "description": "Optional. Ausführungen werden automatisch anhand historischer Schlusskurse berechnet (an Nicht-Handelstagen: nächster Handelstag) und zur Position addiert. Sparplan-Gebühren sind unabhängig von den Verkaufsgebühren.",
+              "data": {
+                "plan_active": "Aktiv",
+                "plan_amount": "Sparrate pro Ausführung",
+                "plan_interval": "Intervall",
+                "plan_day": "Ausführungstag",
+                "plan_start": "Startdatum",
+                "plan_fee_fixed": "Gebühr pro Ausführung (fix)",
+                "plan_fee_percent": "Gebühr pro Ausführung (%)",
+                "plan_fee_included": "Gebühr in Sparrate enthalten"
+              },
+              "data_description": {
+                "plan_amount": "0 = kein Sparplan.",
+                "plan_day": "Tag im Monat (spätere Tage werden aufs Monatsende gelegt). Bei wöchentlichen Plänen ohne Bedeutung.",
+                "plan_start": "Frühestmögliche Ausführung. Bei wöchentlichen Plänen die erste Ausführung.",
+                "plan_fee_included": "An: Die Gebühr wird von der Sparrate abgezogen. Aus: Die Gebühr kommt zusätzlich dazu.",
+                "plan_active": "Ausschalten, um den Sparplan zu pausieren."
+              }
+            }
           }
         }
       },
       "error": {
         "symbol_not_found": "Symbol nicht gefunden. Prüfe die Schreibweise auf finance.yahoo.com.",
-        "cannot_connect": "Keine Verbindung zu Yahoo Finance möglich."
+        "cannot_connect": "Keine Verbindung zu Yahoo Finance möglich.",
+        "plan_start_required": "Bitte ein Startdatum für den Sparplan angeben.",
+        "plan_fee_too_high": "Die Sparplan-Gebühr ist so hoch wie die Sparrate."
       },
       "abort": {
         "already_configured": "Diese Aktie wird bereits verfolgt.",
@@ -161,6 +209,17 @@
         "real_estate_fund": "Immobilienfonds (60 % Teilfreistellung)",
         "other": "Sonstige (Anleihen, ETCs, …)",
         "tax_free": "Steuerfrei (z. B. Krypto > 1 Jahr gehalten)"
+      }
+    },
+    "plan_interval": {
+      "options": {
+        "weekly": "Wöchentlich",
+        "biweekly": "Alle 2 Wochen",
+        "monthly": "Monatlich",
+        "bimonthly": "Alle 2 Monate",
+        "quarterly": "Vierteljährlich",
+        "semiannual": "Halbjährlich",
+        "annual": "Jährlich"
       }
     }
   },
@@ -207,6 +266,21 @@
       },
       "day_change_value": {
         "name": "Tagesveränderung (Wert)"
+      },
+      "quantity": {
+        "name": "Stückzahl"
+      },
+      "average_cost": {
+        "name": "Ø Einstandskurs"
+      },
+      "plan_next_execution": {
+        "name": "Nächste Sparplan-Ausführung"
+      },
+      "plan_quantity": {
+        "name": "Sparplan-Anteile"
+      },
+      "plan_invested": {
+        "name": "Sparplan investiert"
       }
     }
   }

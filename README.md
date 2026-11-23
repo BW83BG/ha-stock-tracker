@@ -24,10 +24,39 @@ Benötigt Home Assistant **2025.3** oder neuer.
    - Tickersymbol, optional Name
    - Anlageart (Aktie, Aktien-ETF, Mischfonds, …)
    - Stückzahl, Kaufkurs pro Stück, Kaufgebühren gesamt (in Depotwährung)
-   - Stückzahl **0** = nur Kurs beobachten
+   - optional ein **Sparplan** (siehe unten)
+   - Stückzahl **0** ohne Sparplan = nur Kurs beobachten
 
 Positionen änderst du über das Drei-Punkte-Menü am Eintrag → *Neu konfigurieren*.
 Nach Nachkäufen trägst du die Gesamtstückzahl, den Durchschnittskurs und die Summe der Kaufgebühren ein.
+
+## Sparpläne
+
+Im Abschnitt **Sparplan** einer Aktie legst du fest:
+
+| Feld | Beispiel |
+|---|---|
+| Sparrate pro Ausführung | 100 € |
+| Intervall | wöchentlich, alle 2 Wochen, monatlich, alle 2 Monate, vierteljährlich, halbjährlich, jährlich |
+| Ausführungstag | 1.–31. des Monats (31 → Monatsende) |
+| Startdatum | erste mögliche Ausführung |
+| Gebühr pro Ausführung | fix und/oder %, z. B. 1,5 % oder 0,99 € |
+| Gebühr in Sparrate enthalten | an: 100 € inkl. Gebühr · aus: 100 € + Gebühr |
+
+Die Integration berechnet jede fällige Ausführung mit dem **Schlusskurs des Ausführungstags**
+(Wochenende/Feiertag → nächster Handelstag, Fremdwährung → Tageskurs) und rechnet die Anteile,
+den Kaufwert und die Gebühren in die Position ein. Eine bestehende Stückzahl (Einmalkäufe) bleibt erhalten.
+
+**Abgleich mit dem Broker:** Wenn du eine Aktie über *Neu konfigurieren* öffnest, sind die bisher
+errechneten Ausführungen bereits in Stückzahl, Kaufkurs und Gebühren eingerechnet und das Startdatum
+steht auf der nächsten Ausführung. Du kannst die Werte mit deinem Depot abgleichen und speichern.
+So bleibt die Vergangenheit korrekt, auch wenn du danach die Sparrate änderst oder den Plan pausierst.
+
+> Broker führen Sparpläne zu einem eigenen Kurs aus (meist vormittags). Die errechneten Anteile
+> weichen deshalb leicht ab. Zum Abgleich einfach gelegentlich *Neu konfigurieren* öffnen und korrigieren.
+> Das Startdatum nach dem Speichern nicht zurückdatieren, sonst werden Ausführungen doppelt gezählt.
+
+## Symbole
 
 | Beispiel | Symbol |
 |---|---|
@@ -47,10 +76,12 @@ Nach Nachkäufen trägst du die Gesamtstückzahl, den Durchschnittskurs und die 
 | Veränderung / Veränderung % | Zum Vortagesschluss |
 | Marktstatus | Vorbörslich / Geöffnet / Nachbörslich / Geschlossen |
 
-**Zusätzlich pro Position** (wenn Stückzahl > 0), in Depotwährung:
+**Zusätzlich pro Position** (wenn Stückzahl > 0 oder Sparplan), in Depotwährung:
 
 | Sensor | Berechnung |
 |---|---|
+| Stückzahl | Einmalkäufe + Sparplan-Anteile |
+| Ø Einstandskurs | Einstandswert / Stückzahl (inkl. Gebühren) |
 | Positionswert | Stückzahl × Kurs × Wechselkurs |
 | Einstandswert | Stückzahl × Kaufkurs + Kaufgebühren |
 | Gewinn/Verlust (+ %) | Positionswert − Verkaufsgebühr − Einstandswert |
@@ -58,6 +89,9 @@ Nach Nachkäufen trägst du die Gesamtstückzahl, den Durchschnittskurs und die 
 | Gewinn/Verlust nach Steuern | Gewinn/Verlust − Steuer |
 | Nettoerlös | Was auf dem Verrechnungskonto ankommt |
 | Tagesveränderung (Wert) | Stückzahl × Tagesveränderung |
+
+**Zusätzlich bei Sparplan:** Nächste Sparplan-Ausführung, Sparplan-Anteile und Sparplan investiert
+(seit dem letzten Abgleich; mit den letzten Ausführungen als Attribut).
 
 **Gerät „Depot“:** dieselben Werte als Summe, wenn **das gesamte Depot** verkauft wird.
 Gewinne und Verluste werden dabei gegeneinander verrechnet, der Freibetrag zählt nur einmal.
@@ -83,6 +117,9 @@ python3.13 -m venv .venv && source .venv/bin/activate
 pip install -r requirements_test.txt
 pytest
 ```
+
+Übersetzungen werden mit `python3 scripts/gen_translations.py custom_components/stock_tracker` erzeugt
+(`strings.json`, `translations/en.json`, `translations/de.json`).
 
 ## Hinweis
 
