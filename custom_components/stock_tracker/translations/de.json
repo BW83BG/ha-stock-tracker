@@ -100,9 +100,25 @@
       "step": {
         "user": {
           "title": "Aktie hinzufügen",
-          "description": "Yahoo-Finance-Symbol, z. B. AAPL, SAP.DE, EUNL.DE, ^GDAXI, BTC-EUR. Stückzahl 0 lassen, um nur den Kurs zu verfolgen. Beträge in {currency}.",
+          "description": "Tickersymbol (z. B. AAPL, SAP.DE), ISIN, WKN oder Name eingeben. Gesucht wird bei Yahoo Finance und onvista.",
           "data": {
-            "symbol": "Tickersymbol",
+            "query": "Symbol, ISIN, WKN oder Name"
+          },
+          "data_description": {
+            "query": "Über ISIN/WKN werden auch ETFs gefunden, die Yahoo nicht kennt (über onvista)."
+          }
+        },
+        "select": {
+          "title": "Handelsplatz wählen",
+          "description": "Wertpapier und Handelsplatz auswählen, von dem die Kurse kommen sollen.",
+          "data": {
+            "candidate": "Notierung"
+          }
+        },
+        "details": {
+          "title": "Aktie hinzufügen",
+          "description": "{instrument}\n\nStückzahl 0 und kein Sparplan = nur Kurs beobachten. Beträge in {currency}.",
+          "data": {
             "name": "Name (optional)",
             "asset_type": "Anlageart",
             "quantity": "Stückzahl",
@@ -137,12 +153,26 @@
                 "plan_fee_included": "An: Die Gebühr wird von der Sparrate abgezogen. Aus: Die Gebühr kommt zusätzlich dazu.",
                 "plan_active": "Ausschalten, um den Sparplan zu pausieren."
               }
+            },
+            "income": {
+              "name": "Erträge",
+              "description": "Ausschüttend: Ausschüttungen werden ab jetzt automatisch aus Yahoo-Daten berechnet (Stückzahl am Ex-Tag, Steuer geschätzt) und zum Gesamtergebnis addiert. Bei onvista-Werten manuell eintragen.",
+              "data": {
+                "distribution": "Ertragsverwendung",
+                "dividends_received": "Bisher erhaltene Ausschüttungen (netto)",
+                "advance_lump_sum_taxed": "Bereits versteuerte Vorabpauschalen"
+              },
+              "data_description": {
+                "distribution": "Thesaurierend: keine Ausschüttungen. Ausschüttend: Dividenden/Ausschüttungen werden gezählt.",
+                "dividends_received": "Summe vergangener Ausschüttungen nach Steuern, z. B. aus den Broker-Abrechnungen.",
+                "advance_lump_sum_taxed": "Summe aller bisher versteuerten Vorabpauschalen (Betrag vor Teilfreistellung, siehe Jahressteuerbescheinigung). Mindert den steuerpflichtigen Gewinn beim Verkauf."
+              }
             }
           }
         },
         "reconfigure": {
           "title": "{symbol} bearbeiten",
-          "description": "Beträge in {currency}. {executions} errechnete Sparplan-Ausführungen wurden unten in Stückzahl, Kaufkurs und Gebühren übernommen. Mit dem Broker abgleichen und ggf. korrigieren. Nach Einmalkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
+          "description": "Beträge in {currency}. {executions} errechnete Sparplan-Ausführungen und {payments} Ausschüttungen wurden unten übernommen. Mit dem Broker abgleichen und ggf. korrigieren. Nach Einmalkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
           "data": {
             "name": "Name",
             "asset_type": "Anlageart",
@@ -176,6 +206,20 @@
                 "plan_start": "Frühestmögliche Ausführung. Bei wöchentlichen Plänen die erste Ausführung.",
                 "plan_fee_included": "An: Die Gebühr wird von der Sparrate abgezogen. Aus: Die Gebühr kommt zusätzlich dazu.",
                 "plan_active": "Ausschalten, um den Sparplan zu pausieren."
+              }
+            },
+            "income": {
+              "name": "Erträge",
+              "description": "Ausschüttend: Ausschüttungen werden ab jetzt automatisch aus Yahoo-Daten berechnet (Stückzahl am Ex-Tag, Steuer geschätzt) und zum Gesamtergebnis addiert. Bei onvista-Werten manuell eintragen.",
+              "data": {
+                "distribution": "Ertragsverwendung",
+                "dividends_received": "Bisher erhaltene Ausschüttungen (netto)",
+                "advance_lump_sum_taxed": "Bereits versteuerte Vorabpauschalen"
+              },
+              "data_description": {
+                "distribution": "Thesaurierend: keine Ausschüttungen. Ausschüttend: Dividenden/Ausschüttungen werden gezählt.",
+                "dividends_received": "Summe vergangener Ausschüttungen nach Steuern, z. B. aus den Broker-Abrechnungen.",
+                "advance_lump_sum_taxed": "Summe aller bisher versteuerten Vorabpauschalen (Betrag vor Teilfreistellung, siehe Jahressteuerbescheinigung). Mindert den steuerpflichtigen Gewinn beim Verkauf."
               }
             }
           }
@@ -220,6 +264,12 @@
         "quarterly": "Vierteljährlich",
         "semiannual": "Halbjährlich",
         "annual": "Jährlich"
+      }
+    },
+    "distribution": {
+      "options": {
+        "accumulating": "Thesaurierend / keine Ausschüttung",
+        "distributing": "Ausschüttend / Dividende"
       }
     }
   },
@@ -281,6 +331,15 @@
       },
       "plan_invested": {
         "name": "Sparplan investiert"
+      },
+      "dividends": {
+        "name": "Ausschüttungen erhalten (netto)"
+      },
+      "total_return": {
+        "name": "Gesamtergebnis nach Steuern"
+      },
+      "dividend_yield": {
+        "name": "Ausschüttungsrendite (12 Monate)"
       }
     }
   }

@@ -7,12 +7,13 @@ Tax model: German capital gains tax (Abgeltungsteuer) for private investors.
   Abgeltungsteuer = taxable / (4 + k)  ->  total rate = (1 + 0.055 + k) / (4 + k)
 * Fees: buy fees raise the cost basis, sell fees reduce the proceeds.
 * Partial exemption (Teilfreistellung) for funds reduces gains and losses.
+* Advance lump sums (Vorabpauschalen) already taxed reduce the gain on sale.
 * Losses from stocks may only be offset against gains from stocks; other
   losses offset everything. Existing loss pots and the remaining saver's
   allowance (Sparerpauschbetrag) are applied afterwards.
 
-Simplifications: no foreign withholding tax credit, no Vorabpauschale,
-no FIFO lot tracking (irrelevant when the whole position is sold).
+Simplifications: no foreign withholding tax credit, no FIFO lot tracking
+(irrelevant when the whole position is sold).
 """
 
 from __future__ import annotations
@@ -149,6 +150,7 @@ class Position:
     purchase_price: float  # per share, portfolio currency
     purchase_fees: float  # total buy fees, portfolio currency
     asset_type: AssetType = AssetType.STOCK
+    advance_taxed: float = 0.0  # Vorabpauschalen already taxed (before exemption)
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +169,7 @@ class PositionResult:
     taxable_gain: float  # gain after Teilfreistellung (before netting)
     tax: TaxResult  # if only this position were sold
     day_change: float
+    dividends: float = 0.0  # distributions received, net of tax
 
     @property
     def gain_percent(self) -> float | None:
@@ -179,6 +182,11 @@ class PositionResult:
     @property
     def net_proceeds(self) -> float:
         return round(self.market_value - self.sell_fee - self.tax.total, 2)
+
+    @property
+    def total_return(self) -> float:
+        """Gain after tax plus distributions received."""
+        return round(self.gain_after_tax + self.dividends, 2)
 
 
 def _split(asset_type: AssetType, taxable: float) -> tuple[float, float]:
@@ -194,6 +202,7 @@ def evaluate_position(
     fx_rate: float,
     fees: FeeSettings,
     tax: TaxSettings,
+    dividends: float = 0.0,
 ) -> PositionResult:
     """Value one position. `price`/`change` in quote currency (major unit)."""
     price_pf = price * fx_rate
@@ -203,7 +212,10 @@ def evaluate_position(
     )
     sell_fee = fees.sell_fee(market_value)
     gain = round(market_value - sell_fee - cost_basis, 2)
-    taxable = round(gain * (1 - PARTIAL_EXEMPTION[position.asset_type]), 2)
+    taxable = round(
+        (gain - position.advance_taxed) * (1 - PARTIAL_EXEMPTION[position.asset_type]),
+        2,
+    )
 
     return PositionResult(
         symbol=position.symbol,
@@ -218,6 +230,7 @@ def evaluate_position(
         taxable_gain=taxable,
         tax=calculate_tax(*_split(position.asset_type, taxable), tax),
         day_change=round(position.quantity * (change or 0.0) * fx_rate, 2),
+        dividends=round(dividends, 2),
     )
 
 
@@ -265,6 +278,14 @@ class PortfolioResult:
     @property
     def day_change(self) -> float:
         return self._sum("day_change")
+
+    @property
+    def dividends(self) -> float:
+        return self._sum("dividends")
+
+    @property
+    def total_return(self) -> float:
+        return round(self.gain_after_tax + self.dividends, 2)
 
 
 def evaluate_portfolio(

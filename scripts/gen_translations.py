@@ -18,6 +18,9 @@ def build(t):
                  "plan_fee_percent": t["p_fee_pct"], "plan_fee_included": t["p_fee_incl"]},
         "data_description": {"plan_amount": t["p_amount_d"], "plan_day": t["p_day_d"], "plan_start": t["p_start_d"],
                  "plan_fee_included": t["p_fee_incl_d"], "plan_active": t["p_active_d"]}}
+    income_section = {"name": t["inc"], "description": t["inc_desc"],
+        "data": {"distribution": t["i_dist"], "dividends_received": t["i_recv"], "advance_lump_sum_taxed": t["i_vorab"]},
+        "data_description": {"distribution": t["i_dist_d"], "dividends_received": t["i_recv_d"], "advance_lump_sum_taxed": t["i_vorab_d"]}}
     return {
         "config": {"step": {"user": {"title": t["title"], "description": t["setup_desc"], "sections": sections}},
                    "abort": {"already_configured": t["already"]}},
@@ -25,20 +28,25 @@ def build(t):
         "config_subentries": {"stock": {
             "entry_type": t["stock"], "initiate_flow": {"user": t["add"]},
             "step": {
-                "user": {"title": t["add"], "description": t["add_desc"],
-                         "data": {"symbol": t["symbol"], "name": t["name_opt"], **pos_data},
+                "user": {"title": t["add"], "description": t["search_desc"],
+                         "data": {"query": t["query"]}, "data_description": {"query": t["query_d"]}},
+                "select": {"title": t["select"], "description": t["select_desc"],
+                           "data": {"candidate": t["candidate"]}},
+                "details": {"title": t["add"], "description": t["details_desc"],
+                         "data": {"name": t["name_opt"], **pos_data},
                          "data_description": {"name": t["name_d"], **pos_desc},
-                         "sections": {"savings_plan": plan_section}},
+                         "sections": {"savings_plan": plan_section, "income": income_section}},
                 "reconfigure": {"title": t["edit"], "description": t["edit_desc"],
                                 "data": {"name": t["name"], **pos_data}, "data_description": pos_desc,
-                                "sections": {"savings_plan": plan_section}}},
+                                "sections": {"savings_plan": plan_section, "income": income_section}}},
             "error": {"symbol_not_found": t["nf"], "cannot_connect": t["cc"],
                       "plan_start_required": t["e_start"], "plan_fee_too_high": t["e_fee"]},
             "abort": {"already_configured": t["dup"], "reconfigure_successful": t["upd"]}}},
         "selector": {
             "church_tax": {"options": t["church_opts"]},
             "asset_type": {"options": t["asset_opts"]},
-            "plan_interval": {"options": t["interval_opts"]}},
+            "plan_interval": {"options": t["interval_opts"]},
+            "distribution": {"options": t["dist_opts"]}},
         "entity": {"sensor": {
             "price": {"name": t["s_price"]}, "change": {"name": t["s_change"]}, "change_percent": {"name": t["s_change_pct"]},
             "market_state": {"name": t["s_market"], "state": t["market_states"]},
@@ -48,7 +56,9 @@ def build(t):
             "net_proceeds": {"name": t["s_proceeds"]}, "day_change_value": {"name": t["s_day"]},
             "quantity": {"name": t["s_qty"]}, "average_cost": {"name": t["s_avg"]},
             "plan_next_execution": {"name": t["s_next"]}, "plan_quantity": {"name": t["s_pqty"]},
-            "plan_invested": {"name": t["s_pinv"]}}},
+            "plan_invested": {"name": t["s_pinv"]},
+            "dividends": {"name": t["s_div"]}, "total_return": {"name": t["s_total"]},
+            "dividend_yield": {"name": t["s_yield"]}}},
     }
 
 en = dict(
@@ -63,7 +73,7 @@ en = dict(
  slp="Stock loss pot", slp_d="Realised stock losses this year (only offset against stock gains).",
  glp="General loss pot", glp_d="Other realised losses this year (offset against all gains).",
  stock="Stock", add="Add stock", add_desc="Yahoo Finance ticker, e.g. AAPL, SAP.DE, EUNL.DE, ^GDAXI, BTC-EUR. Leave quantity at 0 to only track the price. Amounts in {currency}.",
- edit="Edit {symbol}", edit_desc="Amounts in {currency}. {executions} calculated savings plan executions have been added to quantity, purchase price and fees below; compare with your broker and correct if necessary. After additional one-off purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
+ edit="Edit {symbol}", edit_desc="Amounts in {currency}. {executions} calculated savings plan executions and {payments} distributions have been added below; compare with your broker and correct if necessary. After additional one-off purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
  symbol="Ticker symbol", name="Name", name_opt="Name (optional)", name_d="Leave empty to use the name from Yahoo Finance.",
  asset_type="Asset type", asset_type_d="Determines partial exemption and loss offsetting.",
  qty="Quantity", qty_d="Number of shares held (0 = watch only).",
@@ -87,6 +97,16 @@ en = dict(
  e_start="Please enter a start date for the savings plan.", e_fee="The plan fee is as high as the amount.",
  interval_opts={"weekly": "Weekly", "biweekly": "Every 2 weeks", "monthly": "Monthly", "bimonthly": "Every 2 months",
                 "quarterly": "Quarterly", "semiannual": "Every 6 months", "annual": "Yearly"},
+ search_desc="Enter a ticker (e.g. AAPL, SAP.DE), ISIN, WKN or name. Yahoo Finance and onvista are searched.",
+ query="Ticker, ISIN, WKN or name", query_d="ISIN/WKN also finds ETFs Yahoo does not know (via onvista).",
+ select="Choose listing", select_desc="Pick the instrument and trading venue to use for prices.", candidate="Listing",
+ details_desc="{instrument}\n\nLeave quantity at 0 and no savings plan to only track the price. Amounts in {currency}.",
+ inc="Income", inc_desc="Distributing: distributions are calculated automatically from Yahoo data from now on (quantity on the ex-date, tax estimated) and added to the total result. onvista instruments: enter manually.",
+ i_dist="Use of income", i_dist_d="Accumulating: no distributions. Distributing: dividends/distributions are counted.",
+ i_recv="Distributions received so far (net)", i_recv_d="Total of past distributions after tax, e.g. from your broker statements.",
+ i_vorab="Advance lump sums already taxed (Vorabpauschalen)", i_vorab_d="Sum of all Vorabpauschalen taxed so far (amount before partial exemption, see annual tax statement). Reduces the taxable gain on sale.",
+ dist_opts={"accumulating": "Accumulating / no distributions", "distributing": "Distributing / dividends"},
+ s_div="Distributions received (net)", s_total="Total result after tax", s_yield="Distribution yield (12 months)",
  s_qty="Quantity", s_avg="Average cost per share", s_next="Next savings plan execution", s_pqty="Savings plan shares", s_pinv="Savings plan invested",
 )
 de = dict(
@@ -101,7 +121,7 @@ de = dict(
  slp="Verlusttopf Aktien", slp_d="Realisierte Aktienverluste in diesem Jahr (nur mit Aktiengewinnen verrechenbar).",
  glp="Allgemeiner Verlusttopf", glp_d="Sonstige realisierte Verluste in diesem Jahr (mit allen Gewinnen verrechenbar).",
  stock="Aktie", add="Aktie hinzufügen", add_desc="Yahoo-Finance-Symbol, z. B. AAPL, SAP.DE, EUNL.DE, ^GDAXI, BTC-EUR. Stückzahl 0 lassen, um nur den Kurs zu verfolgen. Beträge in {currency}.",
- edit="{symbol} bearbeiten", edit_desc="Beträge in {currency}. {executions} errechnete Sparplan-Ausführungen wurden unten in Stückzahl, Kaufkurs und Gebühren übernommen. Mit dem Broker abgleichen und ggf. korrigieren. Nach Einmalkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
+ edit="{symbol} bearbeiten", edit_desc="Beträge in {currency}. {executions} errechnete Sparplan-Ausführungen und {payments} Ausschüttungen wurden unten übernommen. Mit dem Broker abgleichen und ggf. korrigieren. Nach Einmalkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
  symbol="Tickersymbol", name="Name", name_opt="Name (optional)", name_d="Leer lassen, um den Namen von Yahoo Finance zu verwenden.",
  asset_type="Anlageart", asset_type_d="Bestimmt Teilfreistellung und Verlustverrechnung.",
  qty="Stückzahl", qty_d="Anzahl gehaltener Anteile (0 = nur beobachten).",
@@ -125,6 +145,16 @@ de = dict(
  e_start="Bitte ein Startdatum für den Sparplan angeben.", e_fee="Die Sparplan-Gebühr ist so hoch wie die Sparrate.",
  interval_opts={"weekly": "Wöchentlich", "biweekly": "Alle 2 Wochen", "monthly": "Monatlich", "bimonthly": "Alle 2 Monate",
                 "quarterly": "Vierteljährlich", "semiannual": "Halbjährlich", "annual": "Jährlich"},
+ search_desc="Tickersymbol (z. B. AAPL, SAP.DE), ISIN, WKN oder Name eingeben. Gesucht wird bei Yahoo Finance und onvista.",
+ query="Symbol, ISIN, WKN oder Name", query_d="Über ISIN/WKN werden auch ETFs gefunden, die Yahoo nicht kennt (über onvista).",
+ select="Handelsplatz wählen", select_desc="Wertpapier und Handelsplatz auswählen, von dem die Kurse kommen sollen.", candidate="Notierung",
+ details_desc="{instrument}\n\nStückzahl 0 und kein Sparplan = nur Kurs beobachten. Beträge in {currency}.",
+ inc="Erträge", inc_desc="Ausschüttend: Ausschüttungen werden ab jetzt automatisch aus Yahoo-Daten berechnet (Stückzahl am Ex-Tag, Steuer geschätzt) und zum Gesamtergebnis addiert. Bei onvista-Werten manuell eintragen.",
+ i_dist="Ertragsverwendung", i_dist_d="Thesaurierend: keine Ausschüttungen. Ausschüttend: Dividenden/Ausschüttungen werden gezählt.",
+ i_recv="Bisher erhaltene Ausschüttungen (netto)", i_recv_d="Summe vergangener Ausschüttungen nach Steuern, z. B. aus den Broker-Abrechnungen.",
+ i_vorab="Bereits versteuerte Vorabpauschalen", i_vorab_d="Summe aller bisher versteuerten Vorabpauschalen (Betrag vor Teilfreistellung, siehe Jahressteuerbescheinigung). Mindert den steuerpflichtigen Gewinn beim Verkauf.",
+ dist_opts={"accumulating": "Thesaurierend / keine Ausschüttung", "distributing": "Ausschüttend / Dividende"},
+ s_div="Ausschüttungen erhalten (netto)", s_total="Gesamtergebnis nach Steuern", s_yield="Ausschüttungsrendite (12 Monate)",
  s_qty="Stückzahl", s_avg="Ø Einstandskurs", s_next="Nächste Sparplan-Ausführung", s_pqty="Sparplan-Anteile", s_pinv="Sparplan investiert",
 )
 assert en.keys() == de.keys()

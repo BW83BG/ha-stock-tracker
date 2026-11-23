@@ -1,6 +1,6 @@
 # Aktienkurse – Home Assistant Integration
 
-Verfolgt Aktien-, ETF-, Index- und Kryptokurse über Yahoo Finance (kein API-Key nötig)
+Verfolgt Aktien-, ETF-, Index- und Kryptokurse über Yahoo Finance und onvista (kein API-Key nötig)
 und berechnet für dein Depot, **was beim Verkauf zum aktuellen Kurs übrig bliebe**,
 inklusive Broker-Gebühren und deutscher Abgeltungsteuer.
 
@@ -21,14 +21,45 @@ Benötigt Home Assistant **2025.3** oder neuer.
      (z. B. 4,90 € + 0,25 %, min. 9,90 €; bei Neobrokern z. B. 1 € fix)
    - **Steuer:** Kirchensteuer, verbleibender Sparerpauschbetrag, Verlusttöpfe
 3. Über **„Aktie hinzufügen“** Aktien anlegen:
-   - Tickersymbol, optional Name
+   - **Symbol, ISIN, WKN oder Name** eingeben und den Handelsplatz aus der Trefferliste wählen
+     (bei einem exakten Yahoo-Ticker wie `SAP.DE` entfällt die Auswahl)
    - Anlageart (Aktie, Aktien-ETF, Mischfonds, …)
    - Stückzahl, Kaufkurs pro Stück, Kaufgebühren gesamt (in Depotwährung)
-   - optional ein **Sparplan** (siehe unten)
+   - optional **Erträge** (ausschüttend/thesaurierend) und ein **Sparplan** (siehe unten)
    - Stückzahl **0** ohne Sparplan = nur Kurs beobachten
 
 Positionen änderst du über das Drei-Punkte-Menü am Eintrag → *Neu konfigurieren*.
 Nach Nachkäufen trägst du die Gesamtstückzahl, den Durchschnittskurs und die Summe der Kaufgebühren ein.
+
+## Kursquellen: Yahoo Finance und onvista
+
+Die Suche läuft über beide Quellen:
+
+- **Yahoo Finance:** Ticker (`AAPL`, `SAP.DE`, `EUNL.DE`, `^GDAXI`, `BTC-EUR`) und Yahoo-Suche nach Name/ISIN.
+  Liefert Marktstatus und Ausschüttungsdaten.
+- **onvista:** Suche nach ISIN, WKN oder Name. Findet auch viele (vor allem europäische) ETFs, die
+  Yahoo nicht kennt. Jeder Handelsplatz (Xetra, Tradegate, LS Exchange, gettex, …) ist eine eigene
+  Auswahl. Kein Marktstatus und keine automatischen Ausschüttungen; die trägst du manuell ein.
+
+Beide Schnittstellen sind inoffiziell und können sich ohne Ankündigung ändern.
+
+## Erträge: ausschüttend oder thesaurierend
+
+Im Abschnitt **Erträge** einer Aktie:
+
+| Feld | Bedeutung |
+|---|---|
+| Ertragsverwendung | *Thesaurierend / keine Ausschüttung* oder *Ausschüttend / Dividende* |
+| Bisher erhaltene Ausschüttungen (netto) | Summe vergangener Ausschüttungen nach Steuern (aus den Abrechnungen) |
+| Bereits versteuerte Vorabpauschalen | Summe der Vorabpauschalen laut Jahressteuerbescheinigung |
+
+**Ausschüttend** (Yahoo-Werte): Ab dem Speichern berechnet die Integration jede Ausschüttung
+automatisch, nämlich Betrag pro Anteil × Stückzahl am Ex-Tag (inkl. Sparplan-Käufen vor dem Ex-Tag),
+umgerechnet in die Depotwährung, mit geschätzter Steuer (Teilfreistellung berücksichtigt,
+Sparerpauschbetrag nicht). *Neu konfigurieren* übernimmt den aufgelaufenen Betrag zum Abgleich.
+
+**Vorabpauschale:** Bei thesaurierenden Fonds wird jährlich eine Vorabpauschale versteuert. Sie wird
+beim Verkauf vom Gewinn abgezogen. Ohne diese Angabe wäre die geschätzte Steuer zu hoch.
 
 ## Sparpläne
 
@@ -90,6 +121,10 @@ So bleibt die Vergangenheit korrekt, auch wenn du danach die Sparrate änderst o
 | Nettoerlös | Was auf dem Verrechnungskonto ankommt |
 | Tagesveränderung (Wert) | Stückzahl × Tagesveränderung |
 
+**Zusätzlich bei ausschüttenden Werten:** Ausschüttungsrendite (12 Monate, auch ohne Position),
+Ausschüttungen erhalten (netto; Attribute: manuell, berechnet, letzte Zahlungen) und
+**Gesamtergebnis nach Steuern** = Gewinn/Verlust nach Steuern + erhaltene Ausschüttungen.
+
 **Zusätzlich bei Sparplan:** Nächste Sparplan-Ausführung, Sparplan-Anteile und Sparplan investiert
 (seit dem letzten Abgleich; mit den letzten Ausführungen als Attribut).
 
@@ -106,7 +141,7 @@ Gewinne und Verluste werden dabei gegeneinander verrechnet, der Freibetrag zähl
   Bestehende Verlusttöpfe und der Sparerpauschbetrag werden danach abgezogen.
 - Die Steuer-Sensoren haben Attribute mit der Aufschlüsselung: steuerpflichtiger Betrag, Abgeltungsteuer, Soli, KiSt und genutzter Freibetrag.
 
-**Nicht berücksichtigt:** ausländische Quellensteuer, Vorabpauschale, Haltefristen bei Krypto (dafür Anlageart „Steuerfrei“ wählen) und
+**Nicht berücksichtigt:** ausländische Quellensteuer (bei Ausschüttungen etwa gleiche Gesamtsteuer), automatische Berechnung der Vorabpauschale (manuelles Feld), Haltefristen bei Krypto (dafür Anlageart „Steuerfrei“ wählen) und
 Wechselkurseffekte beim Kauf. Der Kaufkurs wird bereits in Depotwährung eingegeben, das entspricht der deutschen Steuerlogik.
 Die Werte sind eine Schätzung und **keine Steuerberatung**.
 
@@ -123,5 +158,5 @@ pytest
 
 ## Hinweis
 
-Die Yahoo-Finance-API ist inoffiziell und kann sich ohne Ankündigung ändern. Kurse an Börsen sind teils verzögert (typisch 15 Minuten).
+Die Schnittstellen von Yahoo Finance und onvista sind inoffiziell und können sich ohne Ankündigung ändern. Kurse an Börsen sind teils verzögert (typisch 15 Minuten).
 Fällt ein einzelner Kurs kurzzeitig aus, wird der zuletzt bekannte Wert weiterverwendet.

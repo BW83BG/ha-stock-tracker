@@ -11,6 +11,25 @@ SUBENTRY_TYPE_STOCK: Final = "stock"
 
 # Subentry (per stock)
 CONF_SYMBOL: Final = "symbol"
+CONF_QUERY: Final = "query"
+CONF_CANDIDATE: Final = "candidate"
+CONF_SOURCE: Final = "source"
+SOURCE_YAHOO: Final = "yahoo"
+SOURCE_ONVISTA: Final = "onvista"
+CONF_OV_TYPE: Final = "onvista_type"
+CONF_OV_ID: Final = "onvista_id"
+CONF_OV_NOTATION: Final = "onvista_notation"
+CONF_ISIN: Final = "isin"
+
+# Income (per stock)
+SECTION_INCOME: Final = "income"
+CONF_DISTRIBUTION: Final = "distribution"
+DISTRIBUTING: Final = "distributing"
+ACCUMULATING: Final = "accumulating"
+CONF_DIVIDENDS_RECEIVED: Final = "dividends_received"  # net, manual + folded
+CONF_DIVIDENDS_SINCE: Final = "dividends_since"  # automatic calculation from
+CONF_ADVANCE_TAXED: Final = "advance_lump_sum_taxed"  # Vorabpauschalen (sum)
+INCOME_KEYS: Final = (CONF_DISTRIBUTION, CONF_DIVIDENDS_RECEIVED, CONF_ADVANCE_TAXED)
 CONF_ASSET_TYPE: Final = "asset_type"
 CONF_QUANTITY: Final = "quantity"
 CONF_PURCHASE_PRICE: Final = "purchase_price"  # per share, portfolio currency
@@ -31,6 +50,7 @@ PLAN_KEYS: Final = (
     CONF_PLAN_START, CONF_PLAN_FEE_FIXED, CONF_PLAN_FEE_PERCENT, CONF_PLAN_FEE_INCLUDED,
 )
 HISTORY_MAX_AGE: Final = 3600  # seconds between history refreshes
+DIVIDEND_MAX_AGE: Final = 6 * 3600
 
 # Main entry options (global)
 CONF_SCAN_INTERVAL: Final = "scan_interval"
@@ -66,7 +86,7 @@ DEFAULT_OPTIONS: Final = {
 
 REQUEST_TIMEOUT: Final = 15
 
-ATTRIBUTION: Final = "Daten von Yahoo Finance"
+ATTRIBUTION: Final = "Daten von Yahoo Finance / onvista"
 
 
 def scan_interval(seconds: int) -> timedelta:

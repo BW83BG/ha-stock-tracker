@@ -141,6 +141,28 @@ async def test_plan_foreign_currency(hass: HomeAssistant, setup_plan) -> None:
     assert float(_state(hass, "AAPL_cost_basis").state) == pytest.approx(180)
 
 
+def _suggested(result) -> dict:
+    """Pre-filled values of a form (sections as nested dicts)."""
+    out = {}
+    for key, val in result["data_schema"].schema.items():
+        if hasattr(val, "schema"):
+            out[str(key)] = {
+                str(k): (k.description or {}).get("suggested_value") for k in val.schema.schema
+            }
+        else:
+            out[str(key)] = (key.description or {}).get("suggested_value")
+    return out
+
+
+def _clean(values: dict) -> dict:
+    """Drop empty values, keep sections."""
+    return {
+        k: _clean(v) if isinstance(v, dict) else v
+        for k, v in values.items()
+        if v is not None
+    }
+
+
 async def test_reconfigure_folds_plan(hass: HomeAssistant, setup_plan) -> None:
     entry = setup_plan
     sub_id = next(s.subentry_id for s in entry.subentries.values() if s.unique_id == "SAP.DE")
@@ -161,9 +183,7 @@ async def test_reconfigure_folds_plan(hass: HomeAssistant, setup_plan) -> None:
     assert suggested["savings_plan"]["plan_start"] == "2026-12-01"
 
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"],
-        {k: v for k, v in suggested.items() if v is not None and k != "savings_plan"}
-        | {"savings_plan": {k: v for k, v in suggested["savings_plan"].items() if v is not None}},
+        result["flow_id"], _clean(suggested)
     )
     assert result["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
@@ -174,3 +194,99 @@ async def test_reconfigure_folds_plan(hass: HomeAssistant, setup_plan) -> None:
     # after reload: no plan executions since Dec 1, total unchanged
     assert float(_state(hass, "SAP.DE_quantity").state) == pytest.approx(12.97)
     assert float(_state(hass, "SAP.DE_plan_quantity").state) == 0
+
+
+@pytest.fixture
+async def setup_income(hass: HomeAssistant, mock_api, freezer):
+    freezer.move_to("2026-11-23 12:00:00+01:00")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        options=DEFAULT_OPTIONS,  # allowance 1000 -> no tax on sale
+        subentries_data=[
+            # distributing ETF, held 100 shares since 2026-01-01, plus a plan
+            _sub("VUSA.DE", asset_type="equity_fund", quantity=100, purchase_price=80,
+                 purchase_fees=0, distribution="distributing",
+                 dividends_since="2026-01-01", dividends_received=50.0,
+                 plan_amount=1000, plan_interval="monthly", plan_day=1,
+                 plan_start="2026-05-01"),
+            # onvista ETF, accumulating
+            {
+                "data": {"symbol": "IE0006WW1TQ4@GER", "name": "World ex USA",
+                         "source": "onvista", "onvista_type": "FUND",
+                         "onvista_id": "268395859", "onvista_notation": 454412888,
+                         "isin": "IE0006WW1TQ4", "quantity": 10, "purchase_price": 30,
+                         "distribution": "accumulating", "asset_type": "equity_fund",
+                         "plan_amount": 380, "plan_interval": "monthly", "plan_day": 15,
+                         "plan_start": "2026-10-01"},
+                "subentry_type": "stock",
+                "title": "World ex USA",
+                "unique_id": "IE0006WW1TQ4@GER",
+            },
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_dividends_and_yield(hass: HomeAssistant, setup_income) -> None:
+    # 12-month yield: 4 x 0.25 / 100 = 1 %
+    assert float(_state(hass, "VUSA.DE_dividend_yield").state) == pytest.approx(1.0)
+
+    # since 2026-01-01, plan buys 10 shares on the 1st from May:
+    # Mar 19: 100 | Jun 18: 100 + May + Jun = 120 | Sep 17: 100 + May..Sep = 150
+    div = _state(hass, "VUSA.DE_dividends")
+    payments = div.attributes["last_payments"]
+    assert [p["ex_date"] for p in payments] == ["2026-03-19", "2026-06-18", "2026-09-17"]
+    assert [p["shares"] for p in payments] == [100, 120, 150]
+    gross = 0.25 * (100 + 120 + 150)
+    assert div.attributes["calculated_gross"] == pytest.approx(gross)
+    # tax: 70 % taxable (equity fund) x 26.375 %
+    net = gross - gross * 0.7 * 0.26375
+    assert div.attributes["calculated_net"] == pytest.approx(net, abs=0.03)
+    assert float(div.state) == pytest.approx(50 + net, abs=0.03)
+
+    total = float(_state(hass, "VUSA.DE_total_return").state)
+    after_tax = float(_state(hass, "VUSA.DE_gain_after_tax").state)
+    assert total == pytest.approx(after_tax + float(div.state), abs=0.01)
+
+    # portfolio includes income sensors
+    entry_id = setup_income.entry_id
+    assert float(_state(hass, f"{entry_id}_portfolio_dividends").state) == pytest.approx(
+        float(div.state), abs=0.01
+    )
+
+
+async def test_onvista_instrument(hass: HomeAssistant, setup_income) -> None:
+    price = _state(hass, "IE0006WW1TQ4@GER_price")
+    assert float(price.state) == 40.0
+    # plan: Oct 15, Nov 16 at 38 EUR -> 10 shares each
+    assert float(_state(hass, "IE0006WW1TQ4@GER_plan_quantity").state) == pytest.approx(20)
+    assert float(_state(hass, "IE0006WW1TQ4@GER_quantity").state) == pytest.approx(30)
+    # accumulating / onvista: no income sensors
+    reg = er.async_get(hass)
+    assert reg.async_get_entity_id("sensor", DOMAIN, "IE0006WW1TQ4@GER_dividends") is None
+    assert reg.async_get_entity_id("sensor", DOMAIN, "IE0006WW1TQ4@GER_dividend_yield") is None
+
+
+async def test_reconfigure_folds_dividends(hass: HomeAssistant, setup_income) -> None:
+    entry = setup_income
+    sub_id = next(s.subentry_id for s in entry.subentries.values() if s.unique_id == "VUSA.DE")
+    before = float(_state(hass, "VUSA.DE_dividends").state)
+
+    result = await entry.start_subentry_reconfigure_flow(hass, sub_id)
+    assert result["description_placeholders"]["payments"] == "3"
+    suggested = _suggested(result)
+    assert suggested["income"]["dividends_received"] == pytest.approx(before)
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], _clean(suggested)
+    )
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    data = entry.subentries[sub_id].data
+    assert data["dividends_since"] == "2026-11-23"
+    # after reload nothing is counted twice
+    assert float(_state(hass, "VUSA.DE_dividends").state) == pytest.approx(before)

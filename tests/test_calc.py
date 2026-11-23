@@ -132,3 +132,20 @@ def test_market_state(hour, state):
     )
     assert periods.state(datetime(2026, 11, 23, hour, tzinfo=UTC)) is state
     assert TradingPeriods().state(datetime.now(UTC)) is None
+
+
+def test_advance_lump_sum_reduces_taxable_gain():
+    pos = Position("EUNL.DE", 10, 100, 0, AssetType.EQUITY_FUND, advance_taxed=100)
+    r = evaluate_position(pos, 150, 0, 1.0, FeeSettings(), NO_ALLOWANCE)
+    assert r.gain == 500
+    assert r.taxable_gain == pytest.approx((500 - 100) * 0.7)
+
+
+def test_total_return_includes_dividends():
+    pos = Position("X", 10, 100, 0)
+    r = evaluate_position(pos, 110, 0, 1.0, FeeSettings(), TaxSettings(allowance_remaining=1000), dividends=25)
+    assert r.gain_after_tax == 100
+    assert r.total_return == 125
+    pf = evaluate_portfolio([r], TaxSettings(allowance_remaining=1000))
+    assert pf.dividends == 25
+    assert pf.total_return == 125

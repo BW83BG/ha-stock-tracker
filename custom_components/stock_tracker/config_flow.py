@@ -3,11 +3,13 @@
 * The main config entry holds global settings (interval, currency, sell fees,
   tax situation). They are stored as options and editable via "Configure".
 * Every tracked stock is a config *subentry* ("Aktie hinzufügen") holding the
-  symbol and - optionally - the position (quantity, purchase price, fees) and
-  a savings plan with its own fees.
+  instrument (Yahoo ticker or onvista venue, found by ticker/ISIN/WKN/name),
+  optionally the position (quantity, purchase price, fees), a savings plan
+  with its own fees and the income settings (distributing/accumulating).
 * When a stock is reconfigured, savings plan executions calculated so far are
-  folded into the manual position and the plan start moves forward. This
-  keeps the history stable when the plan amount changes.
+  folded into the manual position and the plan start moves forward; likewise
+  calculated distributions are added to the manual total. This keeps the
+  history stable when the configuration changes.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
+from homeassistant.util import dt as dt_util
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -35,17 +38,28 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
 )
 
-from .api import StockApiClient, StockApiError, StockQuote, SymbolNotFoundError
 from .calc import AssetType
-from .coordinator import holding_from_data
+from .coordinator import stock_config_from_data
 from .const import (
+    ACCUMULATING,
     CHURCH_TAX_OPTIONS,
+    CONF_ADVANCE_TAXED,
+    CONF_CANDIDATE,
+    CONF_DISTRIBUTION,
+    CONF_DIVIDENDS_RECEIVED,
+    CONF_DIVIDENDS_SINCE,
+    CONF_QUERY,
+    DISTRIBUTING,
+    INCOME_KEYS,
+    SECTION_INCOME,
+    SOURCE_YAHOO,
     CONF_ALLOWANCE,
     CONF_ASSET_TYPE,
     CONF_CHURCH_TAX,
@@ -78,6 +92,7 @@ from .const import (
     SUBENTRY_TYPE_STOCK,
 )
 from .plan import PlanInterval, combine, next_start, plan_from_data
+from .sources import Candidate, MarketData, instrument_data
 
 SECTION_GENERAL = "general"
 SECTION_FEES = "fees"
@@ -235,7 +250,7 @@ class StockTrackerOptionsFlow(OptionsFlow):
 # --------------------------------------------------------------------------- #
 
 
-def _position_fields(currency: str, plan_collapsed: bool) -> dict:
+def _position_fields(currency: str, plan_collapsed: bool, income_collapsed: bool) -> dict:
     return {
         vol.Required(CONF_ASSET_TYPE, default=AssetType.STOCK.value): SelectSelector(
             SelectSelectorConfig(
@@ -247,6 +262,22 @@ def _position_fields(currency: str, plan_collapsed: bool) -> dict:
         vol.Optional(CONF_QUANTITY, default=0): _number(step="any"),
         vol.Optional(CONF_PURCHASE_PRICE, default=0): _number(currency, step="any"),
         vol.Optional(CONF_PURCHASE_FEES, default=0): _number(currency),
+        vol.Required(SECTION_INCOME): section(
+            vol.Schema(
+                {
+                    vol.Optional(CONF_DISTRIBUTION, default=ACCUMULATING): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[ACCUMULATING, DISTRIBUTING],
+                            translation_key=CONF_DISTRIBUTION,
+                            mode=SelectSelectorMode.LIST,
+                        )
+                    ),
+                    vol.Optional(CONF_DIVIDENDS_RECEIVED, default=0): _number(currency),
+                    vol.Optional(CONF_ADVANCE_TAXED, default=0): _number(currency),
+                }
+            ),
+            {"collapsed": income_collapsed},
+        ),
         vol.Required(SECTION_PLAN): section(
             vol.Schema(
                 {
@@ -282,11 +313,17 @@ def _position_fields(currency: str, plan_collapsed: bool) -> dict:
 def _position_data(user_input: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     """Flat subentry data from the form, plus an error key if invalid."""
     plan = user_input.get(SECTION_PLAN) or {}
+    income = user_input.get(SECTION_INCOME) or {}
     data: dict[str, Any] = {
         CONF_ASSET_TYPE: user_input.get(CONF_ASSET_TYPE, AssetType.STOCK.value),
         CONF_QUANTITY: float(user_input.get(CONF_QUANTITY) or 0),
         CONF_PURCHASE_PRICE: float(user_input.get(CONF_PURCHASE_PRICE) or 0),
         CONF_PURCHASE_FEES: float(user_input.get(CONF_PURCHASE_FEES) or 0),
+        CONF_DISTRIBUTION: income.get(CONF_DISTRIBUTION, ACCUMULATING),
+        CONF_DIVIDENDS_RECEIVED: float(income.get(CONF_DIVIDENDS_RECEIVED) or 0),
+        CONF_ADVANCE_TAXED: float(income.get(CONF_ADVANCE_TAXED) or 0),
+        # automatic distribution calculation starts now
+        CONF_DIVIDENDS_SINCE: dt_util.now().date().isoformat(),
         CONF_PLAN_ACTIVE: bool(plan.get(CONF_PLAN_ACTIVE, True)),
         CONF_PLAN_AMOUNT: float(plan.get(CONF_PLAN_AMOUNT) or 0),
         CONF_PLAN_INTERVAL: plan.get(CONF_PLAN_INTERVAL, PlanInterval.MONTHLY.value),
@@ -306,16 +343,20 @@ def _position_data(user_input: dict[str, Any]) -> tuple[dict[str, Any], str | No
 
 
 def _form_values(data: dict[str, Any]) -> dict[str, Any]:
-    """Flat subentry data -> form values (plan fields nested in their section)."""
-    values = {k: v for k, v in data.items() if k not in PLAN_KEYS and v is not None}
-    values[SECTION_PLAN] = {
-        k: data[k] for k in PLAN_KEYS if data.get(k) is not None
-    }
+    """Flat subentry data -> form values (plan/income fields in their sections)."""
+    nested = set(PLAN_KEYS) | set(INCOME_KEYS)
+    values = {k: v for k, v in data.items() if k not in nested and v is not None}
+    values[SECTION_PLAN] = {k: data[k] for k in PLAN_KEYS if data.get(k) is not None}
+    values[SECTION_INCOME] = {k: data[k] for k in INCOME_KEYS if data.get(k) is not None}
     return values
 
 
 class StockSubentryFlow(ConfigSubentryFlow):
     """Add or reconfigure a tracked stock."""
+
+    def __init__(self) -> None:
+        self._candidates: list[Candidate] = []
+        self._selected: Candidate | None = None
 
     @property
     def _currency(self) -> str:
@@ -323,76 +364,143 @@ class StockSubentryFlow(ConfigSubentryFlow):
             CONF_CURRENCY, DEFAULT_OPTIONS[CONF_CURRENCY]
         )
 
+    # -------------------------------------------------------------- add: search
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Add a new stock."""
+        """Step 1: search by ticker, ISIN, WKN or name."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            symbol = user_input[CONF_SYMBOL].strip().upper()
-            entry = self._get_entry()
+            query = user_input[CONF_QUERY].strip()
+            result = await MarketData(async_get_clientsession(self.hass)).search(query)
+            self._candidates = result.candidates
+            if not self._candidates:
+                errors["base"] = "cannot_connect" if result.errors else "symbol_not_found"
+            else:
+                first = self._candidates[0]
+                # exact Yahoo ticker (e.g. "SAP.DE"): no need to choose
+                if first.instrument.symbol == query.upper() and first.instrument.source == SOURCE_YAHOO:
+                    return await self._async_select(first)
+                return await self.async_step_select()
 
-            if any(sub.unique_id == symbol for sub in entry.subentries.values()):
-                return self.async_abort(reason="already_configured")
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema({vol.Required(CONF_QUERY): TextSelector()}), user_input
+            ),
+            errors=errors,
+        )
 
+    async def async_step_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Step 2: pick a listing / trading venue."""
+        if user_input is not None:
+            return await self._async_select(self._candidates[int(user_input[CONF_CANDIDATE])])
+
+        options = [
+            SelectOptionDict(value=str(i), label=c.label)
+            for i, c in enumerate(self._candidates)
+        ]
+        return self.async_show_form(
+            step_id="select",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_CANDIDATE, default="0"): SelectSelector(
+                        SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
+                    )
+                }
+            ),
+        )
+
+    async def _async_select(self, candidate: Candidate) -> SubentryFlowResult:
+        symbol = candidate.instrument.symbol
+        if any(sub.unique_id == symbol for sub in self._get_entry().subentries.values()):
+            return self.async_abort(reason="already_configured")
+        self._selected = candidate
+        return await self.async_step_details()
+
+    async def async_step_details(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Step 3: name, position, income and savings plan."""
+        assert self._selected is not None
+        candidate = self._selected
+        symbol = candidate.instrument.symbol
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
             position, error = _position_data(user_input)
-            quote = None
-            if error is None:
-                quote, error = await self._async_validate(symbol)
             if error:
                 errors["base"] = error
             else:
-                assert quote is not None
-                name = (user_input.get(CONF_NAME) or "").strip() or quote.name or symbol
+                name = (user_input.get(CONF_NAME) or "").strip() or candidate.name or symbol
                 return self.async_create_entry(
                     title=f"{name} ({symbol})",
-                    data={CONF_SYMBOL: symbol, CONF_NAME: name, **position},
+                    data={
+                        **instrument_data(candidate.instrument),
+                        CONF_NAME: name,
+                        **position,
+                    },
                     unique_id=symbol,
                 )
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_SYMBOL): TextSelector(),
                 vol.Optional(CONF_NAME): TextSelector(),
-                **_position_fields(self._currency, plan_collapsed=not errors),
+                **_position_fields(
+                    self._currency, plan_collapsed=not errors, income_collapsed=True
+                ),
             }
         )
         return self.async_show_form(
-            step_id="user",
-            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            step_id="details",
+            data_schema=self.add_suggested_values_to_schema(
+                schema, user_input or {CONF_NAME: candidate.name}
+            ),
             errors=errors,
-            description_placeholders={"currency": self._currency},
+            description_placeholders={
+                "currency": self._currency,
+                "instrument": candidate.label,
+            },
         )
 
-    def _folded_data(self, data: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Fold calculated plan executions into the manual position."""
+    # -------------------------------------------------------------- reconfigure
+
+    def _folded_data(self, data: dict[str, Any]) -> tuple[dict[str, Any], int, int]:
+        """Fold calculated plan executions and distributions into the base data."""
         entry = self._get_entry()
-        plan = plan_from_data(data)
-        holding = holding_from_data(data)
-        if (
-            plan is None
-            or holding is None
-            or entry.state is not ConfigEntryState.LOADED
-            or not entry.runtime_data.data
-        ):
-            return data, 0
-        result = entry.runtime_data.data.plans.get(data[CONF_SYMBOL])
-        if result is None or not result.executions:
-            return data, 0
-        folded = combine(holding.base, result)
-        return {
-            **data,
-            CONF_QUANTITY: folded.quantity,
-            CONF_PURCHASE_PRICE: round(folded.purchase_price, 4),
-            CONF_PURCHASE_FEES: folded.purchase_fees,
-            CONF_PLAN_START: next_start(plan, result).isoformat(),
-        }, len(result.executions)
+        if entry.state is not ConfigEntryState.LOADED or not entry.runtime_data.data:
+            return data, 0, 0
+        current = entry.runtime_data.data
+        stock = stock_config_from_data(data)
+        symbol = stock.symbol
+        executions = payments = 0
+
+        result = current.plans.get(symbol)
+        if stock.plan and stock.base and result and result.executions:
+            folded = combine(stock.base, result)
+            data = {
+                **data,
+                CONF_QUANTITY: folded.quantity,
+                CONF_PURCHASE_PRICE: round(folded.purchase_price, 4),
+                CONF_PURCHASE_FEES: folded.purchase_fees,
+                CONF_PLAN_START: next_start(stock.plan, result).isoformat(),
+            }
+            executions = len(result.executions)
+
+        dividends = current.dividends.get(symbol)
+        if dividends and dividends.payments:
+            data = {**data, CONF_DIVIDENDS_RECEIVED: dividends.total_net}
+            payments = len(dividends.payments)
+        return data, executions, payments
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Edit name, position and savings plan (the symbol stays fixed)."""
+        """Edit name, position, income and savings plan (instrument stays fixed)."""
         subentry = self._get_reconfigure_subentry()
         symbol = subentry.data[CONF_SYMBOL]
         errors: dict[str, str] = {}
@@ -409,17 +517,19 @@ class StockSubentryFlow(ConfigSubentryFlow):
                     title=f"{name} ({symbol})",
                     data={**subentry.data, CONF_NAME: name, **position},
                 )
-            suggested, executions = user_input, 0
+            suggested, executions, payments = user_input, 0, 0
         else:
-            folded, executions = self._folded_data(dict(subentry.data))
+            folded, executions, payments = self._folded_data(dict(subentry.data))
             suggested = _form_values(folded)
 
-        has_plan = plan_from_data(dict(subentry.data)) is not None
+        stock = stock_config_from_data(dict(subentry.data))
         schema = vol.Schema(
             {
                 vol.Optional(CONF_NAME): TextSelector(),
                 **_position_fields(
-                    self._currency, plan_collapsed=not (has_plan or errors)
+                    self._currency,
+                    plan_collapsed=not (stock.plan or errors),
+                    income_collapsed=not (stock.distributing or errors),
                 ),
             }
         )
@@ -431,17 +541,6 @@ class StockSubentryFlow(ConfigSubentryFlow):
                 "symbol": symbol,
                 "currency": self._currency,
                 "executions": str(executions),
+                "payments": str(payments),
             },
         )
-
-    async def _async_validate(
-        self, symbol: str
-    ) -> tuple[StockQuote | None, str | None]:
-        """Check that Yahoo knows the symbol."""
-        client = StockApiClient(async_get_clientsession(self.hass))
-        try:
-            return await client.async_get_quote(symbol), None
-        except SymbolNotFoundError:
-            return None, "symbol_not_found"
-        except StockApiError:
-            return None, "cannot_connect"

@@ -1,4 +1,4 @@
-"""Small async client for the (unofficial) Yahoo Finance chart API."""
+"""Small async client for the (unofficial) Yahoo Finance API."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from .calc import TradingPeriods
 from .const import REQUEST_TIMEOUT
 
 _BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 # Yahoo rejects requests without a browser-like User-Agent.
 _HEADERS = {
     "User-Agent": (
@@ -66,15 +67,25 @@ class StockQuote:
         return round(self.change / self.previous_close * 100, 2)
 
 
-class StockApiClient:
-    """Fetch quotes from Yahoo Finance."""
+@dataclass(frozen=True, slots=True)
+class YahooSearchResult:
+    """One hit of the Yahoo symbol search."""
+
+    symbol: str
+    name: str | None
+    exchange: str | None
+    quote_type: str | None
+
+
+class YahooClient:
+    """Fetch quotes, history, dividends and search results from Yahoo Finance."""
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self._session = session
 
-    async def _async_chart(self, symbol: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Call the chart endpoint and return the first result."""
-        url = _BASE_URL.format(symbol=symbol)
+    async def _async_get_json(
+        self, url: str, params: dict[str, Any], symbol: str
+    ) -> dict[str, Any]:
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT):
                 resp = await self._session.get(url, params=params, headers=_HEADERS)
@@ -83,9 +94,31 @@ class StockApiClient:
                 if resp.status == 429:
                     raise StockApiError("Rate limit reached (HTTP 429)")
                 resp.raise_for_status()
-                payload: dict[str, Any] = await resp.json()
-        except (TimeoutError, aiohttp.ClientError) as err:
+                return await resp.json()
+        except (TimeoutError, aiohttp.ClientError, ValueError) as err:
             raise StockApiError(f"Error fetching {symbol}: {err}") from err
+
+    async def async_search(self, query: str) -> list[YahooSearchResult]:
+        """Search symbols by name, ISIN or ticker."""
+        payload = await self._async_get_json(
+            _SEARCH_URL, {"q": query, "quotesCount": 10, "newsCount": 0}, query
+        )
+        return [
+            YahooSearchResult(
+                symbol=q["symbol"],
+                name=q.get("longname") or q.get("shortname"),
+                exchange=q.get("exchDisp") or q.get("exchange"),
+                quote_type=q.get("quoteType"),
+            )
+            for q in payload.get("quotes") or []
+            if q.get("symbol") and q.get("isYahooFinance", True)
+        ]
+
+    async def _async_chart(self, symbol: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Call the chart endpoint and return the first result."""
+        payload = await self._async_get_json(
+            _BASE_URL.format(symbol=symbol), params, symbol
+        )
 
         chart = payload.get("chart") or {}
         if chart.get("error"):
@@ -100,8 +133,10 @@ class StockApiClient:
 
         return results[0]
 
-    async def async_get_history(self, symbol: str, start: date) -> list[tuple[date, float]]:
-        """Daily closes from `start` until today, keyed by exchange-local date."""
+    async def _async_range(
+        self, symbol: str, start: date, **extra: str
+    ) -> tuple[dict[str, Any], Any]:
+        """Daily chart from `start` until now plus the exchange time zone."""
         begin = datetime.combine(start - timedelta(days=1), datetime.min.time(), UTC)
         result = await self._async_chart(
             symbol,
@@ -109,12 +144,31 @@ class StockApiClient:
                 "interval": "1d",
                 "period1": int(begin.timestamp()),
                 "period2": int(datetime.now(UTC).timestamp()),
+                **extra,
             },
         )
         meta = result.get("meta") or {}
         tz = await dt_util.async_get_time_zone(
             meta.get("exchangeTimezoneName") or "UTC"
         ) or UTC
+        return result, tz
+
+    async def async_get_dividends(
+        self, symbol: str, start: date
+    ) -> list[tuple[date, float]]:
+        """Distributions per share (quote currency) by ex-date since `start`."""
+        result, tz = await self._async_range(symbol, start, events="div")
+        events = (result.get("events") or {}).get("dividends") or {}
+        out = {
+            datetime.fromtimestamp(e["date"], tz).date(): float(e["amount"])
+            for e in events.values()
+            if e.get("date") and e.get("amount")
+        }
+        return sorted((d, a) for d, a in out.items() if d >= start)
+
+    async def async_get_history(self, symbol: str, start: date) -> list[tuple[date, float]]:
+        """Daily closes from `start` until today, keyed by exchange-local date."""
+        result, tz = await self._async_range(symbol, start)
         timestamps = result.get("timestamp") or []
         quotes = ((result.get("indicators") or {}).get("quote") or [{}])[0]
         closes = quotes.get("close") or []

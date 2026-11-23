@@ -203,6 +203,7 @@ def combine(base: Position, plan: PlanResult) -> Position:
         purchase_price=round(cost / quantity, 6) if quantity else 0.0,
         purchase_fees=round(base.purchase_fees + plan.fees, 2),
         asset_type=base.asset_type,
+        advance_taxed=base.advance_taxed,
     )
 
 

@@ -100,9 +100,25 @@
       "step": {
         "user": {
           "title": "Add stock",
-          "description": "Yahoo Finance ticker, e.g. AAPL, SAP.DE, EUNL.DE, ^GDAXI, BTC-EUR. Leave quantity at 0 to only track the price. Amounts in {currency}.",
+          "description": "Enter a ticker (e.g. AAPL, SAP.DE), ISIN, WKN or name. Yahoo Finance and onvista are searched.",
           "data": {
-            "symbol": "Ticker symbol",
+            "query": "Ticker, ISIN, WKN or name"
+          },
+          "data_description": {
+            "query": "ISIN/WKN also finds ETFs Yahoo does not know (via onvista)."
+          }
+        },
+        "select": {
+          "title": "Choose listing",
+          "description": "Pick the instrument and trading venue to use for prices.",
+          "data": {
+            "candidate": "Listing"
+          }
+        },
+        "details": {
+          "title": "Add stock",
+          "description": "{instrument}\n\nLeave quantity at 0 and no savings plan to only track the price. Amounts in {currency}.",
+          "data": {
             "name": "Name (optional)",
             "asset_type": "Asset type",
             "quantity": "Quantity",
@@ -137,12 +153,26 @@
                 "plan_fee_included": "On: the fee is deducted from the amount. Off: the fee is charged on top.",
                 "plan_active": "Switch off to pause the plan."
               }
+            },
+            "income": {
+              "name": "Income",
+              "description": "Distributing: distributions are calculated automatically from Yahoo data from now on (quantity on the ex-date, tax estimated) and added to the total result. onvista instruments: enter manually.",
+              "data": {
+                "distribution": "Use of income",
+                "dividends_received": "Distributions received so far (net)",
+                "advance_lump_sum_taxed": "Advance lump sums already taxed (Vorabpauschalen)"
+              },
+              "data_description": {
+                "distribution": "Accumulating: no distributions. Distributing: dividends/distributions are counted.",
+                "dividends_received": "Total of past distributions after tax, e.g. from your broker statements.",
+                "advance_lump_sum_taxed": "Sum of all Vorabpauschalen taxed so far (amount before partial exemption, see annual tax statement). Reduces the taxable gain on sale."
+              }
             }
           }
         },
         "reconfigure": {
           "title": "Edit {symbol}",
-          "description": "Amounts in {currency}. {executions} calculated savings plan executions have been added to quantity, purchase price and fees below; compare with your broker and correct if necessary. After additional one-off purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
+          "description": "Amounts in {currency}. {executions} calculated savings plan executions and {payments} distributions have been added below; compare with your broker and correct if necessary. After additional one-off purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
           "data": {
             "name": "Name",
             "asset_type": "Asset type",
@@ -176,6 +206,20 @@
                 "plan_start": "First possible execution. For weekly plans this is the first execution.",
                 "plan_fee_included": "On: the fee is deducted from the amount. Off: the fee is charged on top.",
                 "plan_active": "Switch off to pause the plan."
+              }
+            },
+            "income": {
+              "name": "Income",
+              "description": "Distributing: distributions are calculated automatically from Yahoo data from now on (quantity on the ex-date, tax estimated) and added to the total result. onvista instruments: enter manually.",
+              "data": {
+                "distribution": "Use of income",
+                "dividends_received": "Distributions received so far (net)",
+                "advance_lump_sum_taxed": "Advance lump sums already taxed (Vorabpauschalen)"
+              },
+              "data_description": {
+                "distribution": "Accumulating: no distributions. Distributing: dividends/distributions are counted.",
+                "dividends_received": "Total of past distributions after tax, e.g. from your broker statements.",
+                "advance_lump_sum_taxed": "Sum of all Vorabpauschalen taxed so far (amount before partial exemption, see annual tax statement). Reduces the taxable gain on sale."
               }
             }
           }
@@ -220,6 +264,12 @@
         "quarterly": "Quarterly",
         "semiannual": "Every 6 months",
         "annual": "Yearly"
+      }
+    },
+    "distribution": {
+      "options": {
+        "accumulating": "Accumulating / no distributions",
+        "distributing": "Distributing / dividends"
       }
     }
   },
@@ -281,6 +331,15 @@
       },
       "plan_invested": {
         "name": "Savings plan invested"
+      },
+      "dividends": {
+        "name": "Distributions received (net)"
+      },
+      "total_return": {
+        "name": "Total result after tax"
+      },
+      "dividend_yield": {
+        "name": "Distribution yield (12 months)"
       }
     }
   }

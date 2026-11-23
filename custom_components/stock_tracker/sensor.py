@@ -23,8 +23,10 @@ from homeassistant.util import dt as dt_util
 from .api import StockQuote
 from .calc import MarketState, PortfolioResult, PositionResult, TaxResult
 from .const import ATTRIBUTION, CONF_SYMBOL, DOMAIN, SUBENTRY_TYPE_STOCK
-from .coordinator import StockConfigEntry, StockCoordinator, holding_from_data
+from .coordinator import StockConfigEntry, StockCoordinator, stock_config_from_data
+from .dividends import DividendResult
 from .plan import PlanResult, plan_from_data
+from .sources import instrument_from_data
 
 # --------------------------------------------------------------------------- #
 # Descriptions
@@ -99,6 +101,20 @@ POSITION_ONLY_SENSORS: tuple[ValueSensorDescription, ...] = (
         value_fn=lambda v: (
             round(v.cost_basis / v.quantity, 4) if v.quantity else None  # type: ignore[union-attr]
         ),
+    ),
+)
+
+
+INCOME_SENSORS: tuple[ValueSensorDescription, ...] = (
+    ValueSensorDescription(
+        key="dividends",
+        translation_key="dividends",
+        value_fn=lambda v: v.dividends,
+    ),
+    ValueSensorDescription(
+        key="total_return",
+        translation_key="total_return",
+        value_fn=lambda v: v.total_return,
     ),
 )
 
@@ -194,39 +210,44 @@ async def async_setup_entry(
 ) -> None:
     """Create sensors for every stock subentry and the portfolio."""
     coordinator = entry.runtime_data
-    has_holdings = False
+    has_holdings = has_income = False
 
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_STOCK:
             continue
+        stock = stock_config_from_data(dict(subentry.data))
         entities: list[SensorEntity] = [
             QuoteSensor(coordinator, subentry, d) for d in QUOTE_SENSORS
         ]
-        if holding_from_data(dict(subentry.data)) is not None:
+        if stock.distributing and stock.instrument.supports_dividends:
+            entities.append(YieldSensor(coordinator, subentry))
+        if stock.is_holding:
             has_holdings = True
-            entities += [
-                PositionSensor(coordinator, subentry, d)
-                for d in (*POSITION_ONLY_SENSORS, *VALUE_SENSORS)
-            ]
-        if plan_from_data(dict(subentry.data)) is not None:
+            descriptions = (*POSITION_ONLY_SENSORS, *VALUE_SENSORS)
+            if stock.distributing:
+                has_income = True
+                descriptions += INCOME_SENSORS
+            entities += [PositionSensor(coordinator, subentry, d) for d in descriptions]
+        if stock.plan is not None:
             entities += [PlanSensor(coordinator, subentry, d) for d in PLAN_SENSORS]
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
     if has_holdings:
+        descriptions = VALUE_SENSORS + (INCOME_SENSORS if has_income else ())
         async_add_entities(
-            [PortfolioSensor(coordinator, entry, d) for d in VALUE_SENSORS]
+            [PortfolioSensor(coordinator, entry, d) for d in descriptions]
         )
 
 
 def _stock_device(subentry: ConfigSubentry) -> DeviceInfo:
-    symbol = subentry.data[CONF_SYMBOL]
+    inst = instrument_from_data(subentry.data)
     return DeviceInfo(
-        identifiers={(DOMAIN, symbol)},
-        name=subentry.data.get(CONF_NAME) or symbol,
-        model=symbol,
-        manufacturer="Yahoo Finance",
+        identifiers={(DOMAIN, inst.symbol)},
+        name=subentry.data.get(CONF_NAME) or inst.symbol,
+        model=inst.symbol,
+        manufacturer=inst.provider,
         entry_type=DeviceEntryType.SERVICE,
-        configuration_url=f"https://finance.yahoo.com/quote/{symbol}",
+        configuration_url=inst.url,
     )
 
 
@@ -375,6 +396,26 @@ class PositionSensor(_ValueSensor):
                 "taxable_gain_before_allowance": p.taxable_gain,
                 "scenario": "only_this_position",
             }
+        if key == "dividends":
+            data = self.coordinator.data
+            result: DividendResult | None = data.dividends.get(self._symbol) if data else None
+            if result is None:
+                return None
+            return {
+                "manual_net": result.manual_net,
+                "calculated_net": result.auto_net,
+                "calculated_gross": result.auto_gross,
+                "last_payments": [
+                    {
+                        "ex_date": pay.ex_date.isoformat(),
+                        "per_share": pay.per_share,
+                        "shares": pay.shares,
+                        "gross": pay.gross,
+                        "net": pay.net,
+                    }
+                    for pay in result.payments[-5:]
+                ],
+            }
         return None
 
 
@@ -474,3 +515,23 @@ class PlanSensor(_Base):
                 for e in result.executions[-5:]
             ],
         }
+
+
+class YieldSensor(_Base):
+    """Distributions of the last 12 months relative to the current price."""
+
+    _attr_translation_key = "dividend_yield"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, coordinator: StockCoordinator, subentry: ConfigSubentry) -> None:
+        super().__init__(coordinator)
+        self._symbol: str = subentry.data[CONF_SYMBOL]
+        self._attr_unique_id = f"{self._symbol}_dividend_yield"
+        self._attr_device_info = _stock_device(subentry)
+
+    @property
+    def native_value(self) -> float | None:
+        data = self.coordinator.data
+        return data.yields.get(self._symbol) if data else None

@@ -50,12 +50,25 @@ async def test_options_flow(hass: HomeAssistant, mock_api) -> None:
     assert entry.options["allowance_remaining"] == 500
 
 
-async def _add_stock(hass, entry, user_input):
+async def _search(hass, entry, query):
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, "stock"), context={"source": SOURCE_USER}
     )
     assert result["type"] is FlowResultType.FORM
-    return await hass.config_entries.subentries.async_configure(result["flow_id"], user_input)
+    return await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"query": query}
+    )
+
+
+async def _add_stock(hass, entry, user_input):
+    """Search for the symbol and submit the details form."""
+    user_input = dict(user_input)
+    result = await _search(hass, entry, user_input.pop("symbol"))
+    if result["type"] is not FlowResultType.FORM or result["step_id"] != "details":
+        return result
+    return await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"income": {}, "savings_plan": {}, **user_input}
+    )
 
 
 async def test_add_stock_subentry(hass: HomeAssistant, mock_api) -> None:
@@ -91,8 +104,9 @@ async def test_add_unknown_symbol(hass: HomeAssistant, mock_api) -> None:
     entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, options=DEFAULT_OPTIONS)
     entry.add_to_hass(hass)
 
-    result = await _add_stock(hass, entry, {"symbol": "NOPE", "savings_plan": {}})
+    result = await _search(hass, entry, "NOPE")
     assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
     assert result["errors"] == {"base": "symbol_not_found"}
 
 
@@ -116,7 +130,7 @@ async def test_reconfigure_stock(hass: HomeAssistant, mock_api) -> None:
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
         {"name": "SAP Depot", "asset_type": "stock", "quantity": 3,
-         "purchase_price": 120, "purchase_fees": 1, "savings_plan": {}},
+         "purchase_price": 120, "purchase_fees": 1, "savings_plan": {}, "income": {}},
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -138,7 +152,7 @@ async def test_add_stock_with_plan(hass: HomeAssistant, mock_api) -> None:
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
-        {"symbol": "SAP.DE", "savings_plan": {**plan, "plan_start": "2026-09-01"}},
+        {"income": {}, "savings_plan": {**plan, "plan_start": "2026-09-01"}},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data = next(iter(entry.subentries.values())).data
@@ -146,3 +160,42 @@ async def test_add_stock_with_plan(hass: HomeAssistant, mock_api) -> None:
     assert data["plan_start"] == "2026-09-01"
     assert data["plan_fee_included"] is True
     assert data["quantity"] == 0.0
+
+
+async def test_search_isin_offers_yahoo_and_onvista(hass: HomeAssistant, mock_api) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, options=DEFAULT_OPTIONS)
+    entry.add_to_hass(hass)
+
+    result = await _search(hass, entry, "IE0006WW1TQ4")
+    assert result["step_id"] == "select"
+    options = result["data_schema"].schema["candidate"].config["options"]
+    labels = [o["label"] for o in options]
+    assert labels[0].startswith("Xetra · Xtrackers MSCI World ex USA · 39.49 EUR (onvista)")
+    assert len(labels) == 2
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"candidate": "0"}
+    )
+    assert result["step_id"] == "details"
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"quantity": 10, "purchase_price": 35, "income": {"distribution": "accumulating",
+         "advance_lump_sum_taxed": 12.5}, "savings_plan": {}},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    sub = next(iter(entry.subentries.values()))
+    assert sub.unique_id == "IE0006WW1TQ4@GER"
+    assert sub.data["source"] == "onvista"
+    assert sub.data["onvista_notation"] == 454412888
+    assert sub.data["onvista_type"] == "FUND"
+    assert sub.data["advance_lump_sum_taxed"] == 12.5
+    assert sub.title == "Xtrackers MSCI World ex USA (IE0006WW1TQ4@GER)"
+
+
+async def test_search_by_yahoo_isin(hass: HomeAssistant, mock_api) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, options=DEFAULT_OPTIONS)
+    entry.add_to_hass(hass)
+    result = await _search(hass, entry, "IE00B4L5Y983")
+    assert result["step_id"] == "select"
+    labels = [o["label"] for o in result["data_schema"].schema["candidate"].config["options"]]
+    assert labels == ["IWDA.L · iShares Core MSCI World · LSE · ETF (Yahoo)"]
