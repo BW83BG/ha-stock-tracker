@@ -1,0 +1,213 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Stock prices",
+        "description": "Global settings. Afterwards add individual stocks via \"Add stock\".",
+        "sections": {
+          "general": {
+            "name": "General",
+            "data": {
+              "scan_interval": "Update interval",
+              "currency": "Portfolio currency"
+            },
+            "data_description": {
+              "scan_interval": "How often prices are fetched (seconds).",
+              "currency": "Purchase prices and fees are entered in this currency; foreign prices are converted."
+            }
+          },
+          "fees": {
+            "name": "Broker sell fees",
+            "description": "Fee per sale: fixed + percentage of the sale value, but at least the minimum fee.",
+            "data": {
+              "sell_fee_fixed": "Fixed fee",
+              "sell_fee_percent": "Percentage fee",
+              "sell_fee_min": "Minimum fee"
+            }
+          },
+          "tax": {
+            "name": "Tax (Germany)",
+            "description": "Capital gains tax 25 % + solidarity surcharge (+ church tax). Update the values below during the year.",
+            "data": {
+              "church_tax": "Church tax",
+              "allowance_remaining": "Remaining saver's allowance",
+              "stock_loss_pot": "Stock loss pot",
+              "general_loss_pot": "General loss pot"
+            },
+            "data_description": {
+              "allowance_remaining": "Unused Sparerpauschbetrag for this year (1,000 € single / 2,000 € joint).",
+              "stock_loss_pot": "Realised stock losses this year (only offset against stock gains).",
+              "general_loss_pot": "Other realised losses this year (offset against all gains)."
+            }
+          }
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Already set up. Add stocks via \"Add stock\"."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "sections": {
+          "general": {
+            "name": "General",
+            "data": {
+              "scan_interval": "Update interval",
+              "currency": "Portfolio currency"
+            },
+            "data_description": {
+              "scan_interval": "How often prices are fetched (seconds).",
+              "currency": "Purchase prices and fees are entered in this currency; foreign prices are converted."
+            }
+          },
+          "fees": {
+            "name": "Broker sell fees",
+            "description": "Fee per sale: fixed + percentage of the sale value, but at least the minimum fee.",
+            "data": {
+              "sell_fee_fixed": "Fixed fee",
+              "sell_fee_percent": "Percentage fee",
+              "sell_fee_min": "Minimum fee"
+            }
+          },
+          "tax": {
+            "name": "Tax (Germany)",
+            "description": "Capital gains tax 25 % + solidarity surcharge (+ church tax). Update the values below during the year.",
+            "data": {
+              "church_tax": "Church tax",
+              "allowance_remaining": "Remaining saver's allowance",
+              "stock_loss_pot": "Stock loss pot",
+              "general_loss_pot": "General loss pot"
+            },
+            "data_description": {
+              "allowance_remaining": "Unused Sparerpauschbetrag for this year (1,000 € single / 2,000 € joint).",
+              "stock_loss_pot": "Realised stock losses this year (only offset against stock gains).",
+              "general_loss_pot": "Other realised losses this year (offset against all gains)."
+            }
+          }
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "stock": {
+      "entry_type": "Stock",
+      "initiate_flow": {
+        "user": "Add stock"
+      },
+      "step": {
+        "user": {
+          "title": "Add stock",
+          "description": "Yahoo Finance ticker, e.g. AAPL, SAP.DE, EUNL.DE, ^GDAXI, BTC-EUR. Leave quantity at 0 to only track the price. Amounts in {currency}.",
+          "data": {
+            "symbol": "Ticker symbol",
+            "name": "Name (optional)",
+            "asset_type": "Asset type",
+            "quantity": "Quantity",
+            "purchase_price": "Purchase price per share",
+            "purchase_fees": "Purchase fees (total)"
+          },
+          "data_description": {
+            "name": "Leave empty to use the name from Yahoo Finance.",
+            "quantity": "Number of shares held (0 = watch only).",
+            "purchase_price": "Average purchase price in portfolio currency.",
+            "purchase_fees": "Sum of all fees paid when buying.",
+            "asset_type": "Determines partial exemption and loss offsetting."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit {symbol}",
+          "description": "Amounts in {currency}. After additional purchases enter the total quantity, the average purchase price and the sum of all purchase fees.",
+          "data": {
+            "name": "Name",
+            "asset_type": "Asset type",
+            "quantity": "Quantity",
+            "purchase_price": "Purchase price per share",
+            "purchase_fees": "Purchase fees (total)"
+          },
+          "data_description": {
+            "quantity": "Number of shares held (0 = watch only).",
+            "purchase_price": "Average purchase price in portfolio currency.",
+            "purchase_fees": "Sum of all fees paid when buying.",
+            "asset_type": "Determines partial exemption and loss offsetting."
+          }
+        }
+      },
+      "error": {
+        "symbol_not_found": "Symbol not found. Check the spelling on finance.yahoo.com.",
+        "cannot_connect": "Could not connect to Yahoo Finance."
+      },
+      "abort": {
+        "already_configured": "This stock is already tracked.",
+        "reconfigure_successful": "Stock updated."
+      }
+    }
+  },
+  "selector": {
+    "church_tax": {
+      "options": {
+        "none": "None",
+        "8": "8 % (Bavaria, Baden-Württemberg)",
+        "9": "9 % (other states)"
+      }
+    },
+    "asset_type": {
+      "options": {
+        "stock": "Stock",
+        "equity_fund": "Equity fund / ETF (30 % exemption)",
+        "mixed_fund": "Mixed fund (15 % exemption)",
+        "real_estate_fund": "Real estate fund (60 % exemption)",
+        "other": "Other (bonds, ETCs, ...)",
+        "tax_free": "Tax-free (e.g. crypto held > 1 year)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "price": {
+        "name": "Price"
+      },
+      "change": {
+        "name": "Change"
+      },
+      "change_percent": {
+        "name": "Change %"
+      },
+      "market_state": {
+        "name": "Market state",
+        "state": {
+          "pre": "Pre-market",
+          "open": "Open",
+          "post": "After hours",
+          "closed": "Closed"
+        }
+      },
+      "market_value": {
+        "name": "Market value"
+      },
+      "cost_basis": {
+        "name": "Cost basis"
+      },
+      "gain": {
+        "name": "Profit/loss"
+      },
+      "gain_percent": {
+        "name": "Profit/loss %"
+      },
+      "tax": {
+        "name": "Tax on sale"
+      },
+      "gain_after_tax": {
+        "name": "Profit/loss after tax"
+      },
+      "net_proceeds": {
+        "name": "Net proceeds"
+      },
+      "day_change_value": {
+        "name": "Day change (value)"
+      }
+    }
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Aktienkurse",
+        "description": "Globale Einstellungen. Danach einzelne Aktien über \"Aktie hinzufügen\" anlegen.",
+        "sections": {
+          "general": {
+            "name": "Allgemein",
+            "data": {
+              "scan_interval": "Aktualisierungsintervall",
+              "currency": "Depotwährung"
+            },
+            "data_description": {
+              "scan_interval": "Wie oft die Kurse abgerufen werden (Sekunden).",
+              "currency": "Kaufpreise und Gebühren werden in dieser Währung eingegeben; Fremdwährungskurse werden umgerechnet."
+            }
+          },
+          "fees": {
+            "name": "Verkaufsgebühren des Brokers",
+            "description": "Gebühr pro Verkauf: Fixbetrag + Prozentsatz vom Verkaufswert, mindestens aber die Mindestgebühr.",
+            "data": {
+              "sell_fee_fixed": "Fixe Gebühr",
+              "sell_fee_percent": "Prozentuale Gebühr",
+              "sell_fee_min": "Mindestgebühr"
+            }
+          },
+          "tax": {
+            "name": "Steuer (Deutschland)",
+            "description": "Abgeltungsteuer 25 % + Solidaritätszuschlag (+ Kirchensteuer). Die Werte unten im Jahresverlauf aktuell halten.",
+            "data": {
+              "church_tax": "Kirchensteuer",
+              "allowance_remaining": "Verbleibender Sparerpauschbetrag",
+              "stock_loss_pot": "Verlusttopf Aktien",
+              "general_loss_pot": "Allgemeiner Verlusttopf"
+            },
+            "data_description": {
+              "allowance_remaining": "Noch nicht ausgeschöpfter Freibetrag in diesem Jahr (1.000 € ledig / 2.000 € verheiratet).",
+              "stock_loss_pot": "Realisierte Aktienverluste in diesem Jahr (nur mit Aktiengewinnen verrechenbar).",
+              "general_loss_pot": "Sonstige realisierte Verluste in diesem Jahr (mit allen Gewinnen verrechenbar)."
+            }
+          }
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Bereits eingerichtet. Aktien über \"Aktie hinzufügen\" anlegen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "sections": {
+          "general": {
+            "name": "Allgemein",
+            "data": {
+              "scan_interval": "Aktualisierungsintervall",
+              "currency": "Depotwährung"
+            },
+            "data_description": {
+              "scan_interval": "Wie oft die Kurse abgerufen werden (Sekunden).",
+              "currency": "Kaufpreise und Gebühren werden in dieser Währung eingegeben; Fremdwährungskurse werden umgerechnet."
+            }
+          },
+          "fees": {
+            "name": "Verkaufsgebühren des Brokers",
+            "description": "Gebühr pro Verkauf: Fixbetrag + Prozentsatz vom Verkaufswert, mindestens aber die Mindestgebühr.",
+            "data": {
+              "sell_fee_fixed": "Fixe Gebühr",
+              "sell_fee_percent": "Prozentuale Gebühr",
+              "sell_fee_min": "Mindestgebühr"
+            }
+          },
+          "tax": {
+            "name": "Steuer (Deutschland)",
+            "description": "Abgeltungsteuer 25 % + Solidaritätszuschlag (+ Kirchensteuer). Die Werte unten im Jahresverlauf aktuell halten.",
+            "data": {
+              "church_tax": "Kirchensteuer",
+              "allowance_remaining": "Verbleibender Sparerpauschbetrag",
+              "stock_loss_pot": "Verlusttopf Aktien",
+              "general_loss_pot": "Allgemeiner Verlusttopf"
+            },
+            "data_description": {
+              "allowance_remaining": "Noch nicht ausgeschöpfter Freibetrag in diesem Jahr (1.000 € ledig / 2.000 € verheiratet).",
+              "stock_loss_pot": "Realisierte Aktienverluste in diesem Jahr (nur mit Aktiengewinnen verrechenbar).",
+              "general_loss_pot": "Sonstige realisierte Verluste in diesem Jahr (mit allen Gewinnen verrechenbar)."
+            }
+          }
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "stock": {
+      "entry_type": "Aktie",
+      "initiate_flow": {
+        "user": "Aktie hinzufügen"
+      },
+      "step": {
+        "user": {
+          "title": "Aktie hinzufügen",
+          "description": "Yahoo-Finance-Symbol, z. B. AAPL, SAP.DE, EUNL.DE, ^GDAXI, BTC-EUR. Stückzahl 0 lassen, um nur den Kurs zu verfolgen. Beträge in {currency}.",
+          "data": {
+            "symbol": "Tickersymbol",
+            "name": "Name (optional)",
+            "asset_type": "Anlageart",
+            "quantity": "Stückzahl",
+            "purchase_price": "Kaufkurs pro Stück",
+            "purchase_fees": "Kaufgebühren (gesamt)"
+          },
+          "data_description": {
+            "name": "Leer lassen, um den Namen von Yahoo Finance zu verwenden.",
+            "quantity": "Anzahl gehaltener Anteile (0 = nur beobachten).",
+            "purchase_price": "Durchschnittlicher Kaufkurs in Depotwährung.",
+            "purchase_fees": "Summe aller beim Kauf gezahlten Gebühren.",
+            "asset_type": "Bestimmt Teilfreistellung und Verlustverrechnung."
+          }
+        },
+        "reconfigure": {
+          "title": "{symbol} bearbeiten",
+          "description": "Beträge in {currency}. Nach Nachkäufen die Gesamtstückzahl, den durchschnittlichen Kaufkurs und die Summe aller Kaufgebühren eintragen.",
+          "data": {
+            "name": "Name",
+            "asset_type": "Anlageart",
+            "quantity": "Stückzahl",
+            "purchase_price": "Kaufkurs pro Stück",
+            "purchase_fees": "Kaufgebühren (gesamt)"
+          },
+          "data_description": {
+            "quantity": "Anzahl gehaltener Anteile (0 = nur beobachten).",
+            "purchase_price": "Durchschnittlicher Kaufkurs in Depotwährung.",
+            "purchase_fees": "Summe aller beim Kauf gezahlten Gebühren.",
+            "asset_type": "Bestimmt Teilfreistellung und Verlustverrechnung."
+          }
+        }
+      },
+      "error": {
+        "symbol_not_found": "Symbol nicht gefunden. Prüfe die Schreibweise auf finance.yahoo.com.",
+        "cannot_connect": "Keine Verbindung zu Yahoo Finance möglich."
+      },
+      "abort": {
+        "already_configured": "Diese Aktie wird bereits verfolgt.",
+        "reconfigure_successful": "Aktie aktualisiert."
+      }
+    }
+  },
+  "selector": {
+    "church_tax": {
+      "options": {
+        "none": "Keine",
+        "8": "8 % (Bayern, Baden-Württemberg)",
+        "9": "9 % (übrige Bundesländer)"
+      }
+    },
+    "asset_type": {
+      "options": {
+        "stock": "Aktie",
+        "equity_fund": "Aktienfonds / ETF (30 % Teilfreistellung)",
+        "mixed_fund": "Mischfonds (15 % Teilfreistellung)",
+        "real_estate_fund": "Immobilienfonds (60 % Teilfreistellung)",
+        "other": "Sonstige (Anleihen, ETCs, …)",
+        "tax_free": "Steuerfrei (z. B. Krypto > 1 Jahr gehalten)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "price": {
+        "name": "Kurs"
+      },
+      "change": {
+        "name": "Veränderung"
+      },
+      "change_percent": {
+        "name": "Veränderung %"
+      },
+      "market_state": {
+        "name": "Marktstatus",
+        "state": {
+          "pre": "Vorbörslich",
+          "open": "Geöffnet",
+          "post": "Nachbörslich",
+          "closed": "Geschlossen"
+        }
+      },
+      "market_value": {
+        "name": "Positionswert"
+      },
+      "cost_basis": {
+        "name": "Einstandswert"
+      },
+      "gain": {
+        "name": "Gewinn/Verlust"
+      },
+      "gain_percent": {
+        "name": "Gewinn/Verlust %"
+      },
+      "tax": {
+        "name": "Steuer bei Verkauf"
+      },
+      "gain_after_tax": {
+        "name": "Gewinn/Verlust nach Steuern"
+      },
+      "net_proceeds": {
+        "name": "Nettoerlös"
+      },
+      "day_change_value": {
+        "name": "Tagesveränderung (Wert)"
+      }
+    }
+  }
+}
